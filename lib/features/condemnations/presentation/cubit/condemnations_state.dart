@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+
 import '../../../../core/error/error_handler.dart';
 import '../../domain/entities/condemnations_entities.dart';
 
@@ -58,28 +59,30 @@ class CondemnationsState extends Equatable {
       historyRecords: historyRecords ?? this.historyRecords,
       globalThresholdDays: globalThresholdDays ?? this.globalThresholdDays,
       userCustomAlertDays: userCustomAlertDays ?? this.userCustomAlertDays,
-      fromDateFilter:
-          clearFromDate ? null : (fromDateFilter ?? this.fromDateFilter),
+      fromDateFilter: clearFromDate
+          ? null
+          : (fromDateFilter ?? this.fromDateFilter),
       toDateFilter: clearToDate ? null : (toDateFilter ?? this.toDateFilter),
       sourceFilter: sourceFilter ?? this.sourceFilter,
       failure: clearFailure ? null : (failure ?? this.failure),
-      successMessage:
-          clearSuccess ? null : (successMessage ?? this.successMessage),
+      successMessage: clearSuccess
+          ? null
+          : (successMessage ?? this.successMessage),
     );
   }
 
   @override
   List<Object?> get props => [
-        isLoading,
-        isSubmitting,
-        alertItems,
-        historyRecords,
-        globalThresholdDays,
-        userCustomAlertDays,
-        fromDateFilter,
-        toDateFilter,
-        sourceFilter,
-        failure,
-        successMessage,
-      ];
+    isLoading,
+    isSubmitting,
+    alertItems,
+    historyRecords,
+    globalThresholdDays,
+    userCustomAlertDays,
+    fromDateFilter,
+    toDateFilter,
+    sourceFilter,
+    failure,
+    successMessage,
+  ];
 }

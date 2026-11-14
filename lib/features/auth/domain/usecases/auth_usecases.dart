@@ -74,9 +74,9 @@ class AuthUseCases {
   final WatchAuthStateChangesUseCase watchAuthState;
 
   AuthUseCases(IAuthRepository repository)
-      : getCurrentUser = GetCurrentLoggedUserUseCase(repository),
-        signIn = SignInUseCase(repository),
-        updatePassword = UpdatePasswordUseCase(repository),
-        signOut = SignOutUseCase(repository),
-        watchAuthState = WatchAuthStateChangesUseCase(repository);
+    : getCurrentUser = GetCurrentLoggedUserUseCase(repository),
+      signIn = SignInUseCase(repository),
+      updatePassword = UpdatePasswordUseCase(repository),
+      signOut = SignOutUseCase(repository),
+      watchAuthState = WatchAuthStateChangesUseCase(repository);
 }

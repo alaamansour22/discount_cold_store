@@ -1,12 +1,16 @@
 import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../domain/entities/rack_transfer_entities.dart';
 import '../models/rack_transfer_models.dart';
 
 abstract class IRackTransferRemoteDataSource {
   Future<List<TransferJsonMap>> fetchRawSlots();
   Future<List<TransferJsonMap>> fetchActiveItems();
-  Future<List<RackTransferHistoryEntity>> fetchRelocationMovements({int limit = 150});
+  Future<List<RackTransferHistoryEntity>> fetchRelocationMovements({
+    int limit = 150,
+  });
 
   Future<void> rpcRelocatePallet({
     required String palletId,
@@ -17,7 +21,8 @@ abstract class IRackTransferRemoteDataSource {
   Stream<void> subscribeToRackTransferChanges();
 }
 
-class RackTransferRemoteDataSourceImpl implements IRackTransferRemoteDataSource {
+class RackTransferRemoteDataSourceImpl
+    implements IRackTransferRemoteDataSource {
   final SupabaseClient _supabase;
 
   RackTransferRemoteDataSourceImpl(this._supabase);
@@ -55,7 +60,11 @@ class RackTransferRemoteDataSourceImpl implements IRackTransferRemoteDataSource 
 
     final list = data as List;
     return list
-        .map((r) => TransferModelMapper.historyFromJson(TransferJsonMap.from(r as Map)))
+        .map(
+          (r) => TransferModelMapper.historyFromJson(
+            TransferJsonMap.from(r as Map),
+          ),
+        )
         .toList();
   }
 
@@ -65,11 +74,14 @@ class RackTransferRemoteDataSourceImpl implements IRackTransferRemoteDataSource 
     required String targetSlotId,
     required String notes,
   }) async {
-    await _supabase.rpc('rpc_relocate_pallet', params: {
-      'p_pallet_id': palletId,
-      'p_target_slot_id': targetSlotId,
-      'p_notes': notes.trim().isEmpty ? 'تحويل بين الراكات' : notes.trim(),
-    });
+    await _supabase.rpc(
+      'rpc_relocate_pallet',
+      params: {
+        'p_pallet_id': palletId,
+        'p_target_slot_id': targetSlotId,
+        'p_notes': notes.trim().isEmpty ? 'تحويل بين الراكات' : notes.trim(),
+      },
+    );
   }
 
   @override

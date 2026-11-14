@@ -25,13 +25,13 @@ class AuthUserEntity extends Equatable {
 
   @override
   List<Object?> get props => [
-        id,
-        email,
-        fullName,
-        employeeCode,
-        role,
-        customAlertDays,
-        notificationsEnabled,
-        isActive,
-      ];
+    id,
+    email,
+    fullName,
+    employeeCode,
+    role,
+    customAlertDays,
+    notificationsEnabled,
+    isActive,
+  ];
 }

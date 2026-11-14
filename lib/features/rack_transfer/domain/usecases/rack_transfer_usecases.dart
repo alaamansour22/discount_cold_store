@@ -57,8 +57,8 @@ class RackTransferUseCases {
   final WatchRealtimeTransferChangesUseCase watchRealtimeChanges;
 
   RackTransferUseCases(IRackTransferRepository repository)
-      : getAllSlots = GetAllSlotsForTransferUseCase(repository),
-        getHistory = GetRelocationHistoryUseCase(repository),
-        relocatePallet = RelocatePalletUseCase(repository),
-        watchRealtimeChanges = WatchRealtimeTransferChangesUseCase(repository);
+    : getAllSlots = GetAllSlotsForTransferUseCase(repository),
+      getHistory = GetRelocationHistoryUseCase(repository),
+      relocatePallet = RelocatePalletUseCase(repository),
+      watchRealtimeChanges = WatchRealtimeTransferChangesUseCase(repository);
 }

@@ -9,11 +9,14 @@ class CondemnationsRepositoryImpl implements ICondemnationsRepository {
   CondemnationsRepositoryImpl(this._remoteDataSource);
 
   @override
-  Future<({
-    List<CondemnationAlertItemEntity> alertItems,
-    int globalThresholdDays,
-    int userCustomAlertDays,
-  })> getActiveCondemnationAlerts() async {
+  Future<
+    ({
+      List<CondemnationAlertItemEntity> alertItems,
+      int globalThresholdDays,
+      int userCustomAlertDays,
+    })
+  >
+  getActiveCondemnationAlerts() async {
     try {
       final dto = await _remoteDataSource.fetchActiveAlertsAndThresholds();
       return (

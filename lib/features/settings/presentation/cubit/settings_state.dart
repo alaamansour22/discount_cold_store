@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+
 import '../../../../core/error/error_handler.dart';
 import '../../domain/entities/notification_settings_entity.dart';
 
@@ -31,17 +32,18 @@ class SettingsState extends Equatable {
       isSubmitting: isSubmitting ?? this.isSubmitting,
       settings: settings ?? this.settings,
       failure: clearFailure ? null : (failure ?? this.failure),
-      successMessage:
-          clearSuccess ? null : (successMessage ?? this.successMessage),
+      successMessage: clearSuccess
+          ? null
+          : (successMessage ?? this.successMessage),
     );
   }
 
   @override
   List<Object?> get props => [
-        isLoading,
-        isSubmitting,
-        settings,
-        failure,
-        successMessage,
-      ];
+    isLoading,
+    isSubmitting,
+    settings,
+    failure,
+    successMessage,
+  ];
 }

@@ -17,12 +17,12 @@ class TransferPalletItemSummary extends Equatable {
 
   @override
   List<Object?> get props => [
-        itemName,
-        quantity,
-        unitArLabel,
-        sourceArLabel,
-        daysUntilExpiry,
-      ];
+    itemName,
+    quantity,
+    unitArLabel,
+    sourceArLabel,
+    daysUntilExpiry,
+  ];
 }
 
 class TransferSlotEntity extends Equatable {
@@ -52,22 +52,25 @@ class TransferSlotEntity extends Equatable {
 
   bool get isMixed => items.length > 1;
 
-  String get itemsPreviewText =>
-      items.isEmpty ? 'فارغ' : items.map((e) => '${e.itemName} (${e.quantity} ${e.unitArLabel})').join(' + ');
+  String get itemsPreviewText => items.isEmpty
+      ? 'فارغ'
+      : items
+            .map((e) => '${e.itemName} (${e.quantity} ${e.unitArLabel})')
+            .join(' + ');
 
   @override
   List<Object?> get props => [
-        slotId,
-        zoneCode,
-        rackLetter,
-        floorNumber,
-        binNumber,
-        slotCode,
-        isOccupied,
-        palletId,
-        palletReference,
-        items,
-      ];
+    slotId,
+    zoneCode,
+    rackLetter,
+    floorNumber,
+    binNumber,
+    slotCode,
+    isOccupied,
+    palletId,
+    palletReference,
+    items,
+  ];
 }
 
 class RackTransferHistoryEntity extends Equatable {
@@ -97,11 +100,11 @@ class RackTransferHistoryEntity extends Equatable {
 
   @override
   List<Object?> get props => [
-        id,
-        palletId,
-        itemName,
-        fromSlotCode,
-        toSlotCode,
-        createdAt,
-      ];
+    id,
+    palletId,
+    itemName,
+    fromSlotCode,
+    toSlotCode,
+    createdAt,
+  ];
 }

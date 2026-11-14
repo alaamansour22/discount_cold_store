@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+
 import '../../../../core/error/error_handler.dart';
 import '../../domain/entities/rack_transfer_entities.dart';
 
@@ -29,10 +30,10 @@ class RackTransferState extends Equatable {
       allSlots.where((s) => s.isOccupied && s.palletId != null).toList();
 
   List<TransferSlotEntity> get filteredEmptySlots => allSlots.where((s) {
-        if (s.isOccupied) return false;
-        if (targetZoneFilter == 'ALL') return true;
-        return s.zoneCode == targetZoneFilter;
-      }).toList();
+    if (s.isOccupied) return false;
+    if (targetZoneFilter == 'ALL') return true;
+    return s.zoneCode == targetZoneFilter;
+  }).toList();
 
   TransferSlotEntity? get selectedSourceSlot {
     final occ = occupiedSlots;
@@ -76,20 +77,22 @@ class RackTransferState extends Equatable {
       selectedTargetSlotId: selectedTargetSlotId ?? this.selectedTargetSlotId,
       targetZoneFilter: targetZoneFilter ?? this.targetZoneFilter,
       failure: clearFailure ? null : (failure ?? this.failure),
-      successMessage: clearSuccess ? null : (successMessage ?? this.successMessage),
+      successMessage: clearSuccess
+          ? null
+          : (successMessage ?? this.successMessage),
     );
   }
 
   @override
   List<Object?> get props => [
-        isLoading,
-        isSubmitting,
-        allSlots,
-        history,
-        selectedSourceSlotId,
-        selectedTargetSlotId,
-        targetZoneFilter,
-        failure,
-        successMessage,
-      ];
+    isLoading,
+    isSubmitting,
+    allSlots,
+    history,
+    selectedSourceSlotId,
+    selectedTargetSlotId,
+    targetZoneFilter,
+    failure,
+    successMessage,
+  ];
 }

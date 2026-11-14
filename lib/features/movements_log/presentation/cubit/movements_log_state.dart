@@ -1,8 +1,8 @@
 import 'package:discount_cold_store/features/movements_log/domain/entities/movements_log_entities.dart';
-import 'package:discount_cold_store/features/receiving_dispatch/domain/entities/receiving_dispatch_entities.dart';
+import 'package:discount_cold_store/features/receiving/domain/entities/receiving_entities.dart';
 import 'package:equatable/equatable.dart';
-import '../../../../core/error/error_handler.dart';
 
+import '../../../../core/error/error_handler.dart';
 
 class MovementsLogState extends Equatable {
   final bool isLoading;
@@ -52,12 +52,12 @@ class MovementsLogState extends Equatable {
 
   @override
   List<Object?> get props => [
-        isLoading,
-        movements,
-        fromDate,
-        toDate,
-        movementTypeFilter,
-        sourceFilter,
-        failure,
-      ];
+    isLoading,
+    movements,
+    fromDate,
+    toDate,
+    movementTypeFilter,
+    sourceFilter,
+    failure,
+  ];
 }

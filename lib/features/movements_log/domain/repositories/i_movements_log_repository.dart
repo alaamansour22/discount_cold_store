@@ -1,4 +1,4 @@
-import 'package:discount_cold_store/features/receiving_dispatch/domain/entities/receiving_dispatch_entities.dart';
+import 'package:discount_cold_store/features/receiving/domain/entities/receiving_entities.dart';
 
 import '../entities/movements_log_entities.dart';
 

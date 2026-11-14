@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../domain/entities/condemnations_entities.dart';
 import '../models/condemnations_models.dart';
 
@@ -75,9 +77,11 @@ class CondemnationsRemoteDataSourceImpl
 
     final list = activeRows as List;
     final alertEntities = list
-        .map((r) => CondemnationModelMapper.alertFromViewJson(
-              CondemnJsonMap.from(r as Map),
-            ))
+        .map(
+          (r) => CondemnationModelMapper.alertFromViewJson(
+            CondemnJsonMap.from(r as Map),
+          ),
+        )
         .toList();
 
     return ActiveAlertsDto(
@@ -98,8 +102,11 @@ class CondemnationsRemoteDataSourceImpl
         .select('*, profiles(full_name)');
 
     if (fromDate != null) {
-      final startOfDay =
-          DateTime(fromDate.year, fromDate.month, fromDate.day).toIso8601String();
+      final startOfDay = DateTime(
+        fromDate.year,
+        fromDate.month,
+        fromDate.day,
+      ).toIso8601String();
       query = query.gte('created_at', startOfDay);
     }
 
@@ -118,9 +125,11 @@ class CondemnationsRemoteDataSourceImpl
     final data = await query.order('created_at', ascending: false).limit(limit);
     final list = data as List;
     return list
-        .map((r) => CondemnationModelMapper.historyFromJson(
-              CondemnJsonMap.from(r as Map),
-            ))
+        .map(
+          (r) => CondemnationModelMapper.historyFromJson(
+            CondemnJsonMap.from(r as Map),
+          ),
+        )
         .toList();
   }
 
@@ -130,12 +139,15 @@ class CondemnationsRemoteDataSourceImpl
     required double quantityToCondemn,
     required String reason,
   }) async {
-    await _supabase.rpc('rpc_adjust_or_release_item', params: {
-      'p_pallet_item_id': palletItemId,
-      'p_action': 'condemn',
-      'p_target_quantity': quantityToCondemn,
-      'p_notes': reason,
-    });
+    await _supabase.rpc(
+      'rpc_adjust_or_release_item',
+      params: {
+        'p_pallet_item_id': palletItemId,
+        'p_action': 'condemn',
+        'p_target_quantity': quantityToCondemn,
+        'p_notes': reason,
+      },
+    );
   }
 
   @override

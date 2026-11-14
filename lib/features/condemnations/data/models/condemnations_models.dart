@@ -41,8 +41,7 @@ class CondemnationModelMapper {
       daysUntilExpiry: (json['days_until_expiry'] as num?)?.toInt() ?? 0,
       globalThresholdDays:
           (json['condemnation_threshold_days'] as num?)?.toInt() ?? 7,
-      healthStatus:
-          json['condemnation_health_status'] as String? ?? 'healthy',
+      healthStatus: json['condemnation_health_status'] as String? ?? 'healthy',
     );
   }
 
@@ -57,7 +56,8 @@ class CondemnationModelMapper {
       palletId: json['pallet_id'] as String,
       palletItemId: json['pallet_item_id'] as String?,
       itemName: json['item_name'] as String? ?? '',
-      condemnedQuantity: (json['condemned_quantity'] as num?)?.toDouble() ?? 0.0,
+      condemnedQuantity:
+          (json['condemned_quantity'] as num?)?.toDouble() ?? 0.0,
       unitDb: unitDb,
       unitArLabel: unitToArabic(unitDb),
       productionDate: DateTime.parse(json['production_date'] as String),

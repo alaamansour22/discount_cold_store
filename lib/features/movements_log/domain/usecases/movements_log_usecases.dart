@@ -1,4 +1,4 @@
-import 'package:discount_cold_store/features/receiving_dispatch/domain/entities/receiving_dispatch_entities.dart';
+import 'package:discount_cold_store/features/receiving/domain/entities/receiving_entities.dart';
 
 import '../../../../core/error/error_handler.dart';
 import '../entities/movements_log_entities.dart';
@@ -43,6 +43,6 @@ class MovementsLogUseCases {
   final WatchRealtimeMovementsUseCase watchRealtime;
 
   MovementsLogUseCases(IMovementsLogRepository repository)
-      : getMovements = GetSystemMovementsUseCase(repository),
-        watchRealtime = WatchRealtimeMovementsUseCase(repository);
+    : getMovements = GetSystemMovementsUseCase(repository),
+      watchRealtime = WatchRealtimeMovementsUseCase(repository);
 }

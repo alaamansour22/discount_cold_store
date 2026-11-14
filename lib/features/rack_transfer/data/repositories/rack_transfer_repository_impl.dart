@@ -41,7 +41,8 @@ class RackTransferRepositoryImpl implements IRackTransferRepository {
           floorNumber: (map['floor_number'] as num).toInt(),
           binNumber: (map['bin_number'] as num).toInt(),
           slotCode: map['slot_code'] as String,
-          isOccupied: (map['is_occupied'] as bool? ?? false) &&
+          isOccupied:
+              (map['is_occupied'] as bool? ?? false) &&
               pId != null &&
               slotItems.isNotEmpty,
           palletId: pId,

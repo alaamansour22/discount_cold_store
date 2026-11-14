@@ -2,18 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:pdf/pdf.dart';
+
 import '../../../../core/theme/app_theme.dart';
-import '../../../../core/utils/cold_storage_pdf_service.dart';
 import '../../../../core/widgets/app_action_button.dart';
 import '../../../../core/widgets/responsive_shimmer.dart';
 import '../../domain/entities/condemnations_entities.dart';
 import '../cubit/condemnations_cubit.dart';
 import '../cubit/condemnations_state.dart';
 
-/// شاشة الموديول الخامس: الإعدامات والبحث في سجل الإعدامات من فترة لفترة (من تاريخ -> إلى تاريخ)
-/// - معزولة بـ RepaintBoundary و ValueNotifier لمنع أي Lag عند فتح الكيبورد
-/// - مربوطة بخدمة ColdStoragePdfService لطباعة تقارير PDF بخط Cairo ولوجو الشركة
 class CondemnationsPage extends StatefulWidget {
   const CondemnationsPage({super.key});
 
@@ -21,12 +17,22 @@ class CondemnationsPage extends StatefulWidget {
   State<CondemnationsPage> createState() => _CondemnationsPageState();
 }
 
-class _CondemnationsPageState extends State<CondemnationsPage> {
-  final ValueNotifier<String> _searchQueryNotifier = ValueNotifier<String>('');
+class _CondemnationsPageState extends State<CondemnationsPage>
+    with SingleTickerProviderStateMixin {
+  final TextEditingController _searchController = TextEditingController();
+  late final TabController _tabController;
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
 
   @override
   void dispose() {
-    _searchQueryNotifier.dispose();
+    _searchController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -34,503 +40,716 @@ class _CondemnationsPageState extends State<CondemnationsPage> {
   String _fmtDateTime(DateTime d) =>
       intl.DateFormat('yyyy-MM-dd HH:mm').format(d);
 
-  Future<void> _printAlertsPdf(CondemnationsState state) async {
-    final rows = state.alertItems.map((item) {
-      final statusText = item.isExpired ? 'منتهي الصلاحية' : 'مستحق للإعدام';
-      return <String>[
-        statusText,
-        item.daysUntilExpiry.toString(),
-        _fmtDate(item.expiryDate),
-        _fmtDate(item.productionDate),
-        item.sourceArLabel,
-        '${item.quantity} ${item.unitArLabel}',
-        item.itemName,
-        item.slotCode,
-      ];
-    }).toList();
-
-    await ColdStoragePdfService.printCustomTableReport(
-      reportTitle: 'تقرير الأصناف المستحقة للإعدام حالياً — ثلاجة مخفض (رمز C)',
-      reportSubtitle:
-          'حد الثلاجة العام: ${state.globalThresholdDays} يوم | تنبيه المستخدم: ${state.userCustomAlertDays} يوم | العدد: ${rows.length}',
-      headers: const [
-        'الحالة',
-        'المتبقي (يوم)',
-        'تاريخ الانتهاء',
-        'تاريخ الإنتاج',
-        'جهة الاستلام',
-        'الكمية والوحدة',
-        'اسم الصنف',
-        'موقع الراك',
-      ],
-      rows: rows,
-      fileName: 'active_condemnation_alerts.pdf',
-      headerColor: PdfColors.red900,
-    );
-  }
-
-  Future<void> _printHistoryPdf(
-    CondemnationsState state,
-    List<CondemnationHistoryRecordEntity> filteredRecords,
-  ) async {
-    final fromStr = state.fromDateFilter != null
-        ? _fmtDate(state.fromDateFilter!)
-        : 'البداية';
-    final toStr =
-        state.toDateFilter != null ? _fmtDate(state.toDateFilter!) : 'اليوم';
-
-    final rows = filteredRecords.map((rec) {
-      return <String>[
-        _fmtDateTime(rec.createdAt),
-        rec.approvedByName,
-        rec.reason,
-        _fmtDate(rec.expiryDate),
-        _fmtDate(rec.productionDate),
-        rec.sourceArLabel,
-        '${rec.condemnedQuantity} ${rec.unitArLabel}',
-        rec.itemName,
-        rec.slotCode,
-      ];
-    }).toList();
-
-    await ColdStoragePdfService.printCustomTableReport(
-      reportTitle: 'سجل الإعدامات الفعلي المعتمد — ثلاجة مخفض (رمز C)',
-      reportSubtitle:
-          'الفترة من: $fromStr إلى: $toStr | إجمالي العمليات: ${rows.length}',
-      headers: const [
-        'تاريخ الإعدام',
-        'المعتمد',
-        'سبب الإعدام',
-        'الانتهاء',
-        'الإنتاج',
-        'الجهة المصدر',
-        'الكمية المعدمة',
-        'اسم الصنف',
-        'موقع الراك',
-      ],
-      rows: rows,
-      fileName: 'condemnations_history_report.pdf',
-      headerColor: PdfColors.red900,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<CondemnationsCubit, CondemnationsState>(
       listener: (context, state) {
-        if (state.failure != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.failure!.message),
-              backgroundColor: AppColors.dangerRed,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        } else if (state.successMessage != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.successMessage!),
-              backgroundColor: AppColors.successGreen,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
+        if (!mounted) return;
+        final message = state.failure?.message ?? state.successMessage;
+        if (message == null) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: state.failure != null
+                ? AppColors.dangerRed
+                : AppColors.successGreen,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       },
       builder: (context, state) {
-        return DefaultTabController(
-          length: 2,
-          child: Column(
-            children: [
-              Container(
-                color: Colors.white,
-                child: TabBar(
-                  labelColor: AppColors.dangerRed,
-                  indicatorColor: AppColors.dangerRed,
-                  tabs: [
-                    Tab(
-                      icon: const Icon(LucideIcons.triangleAlert, size: 18),
-                      text:
-                          'الأصناف المستحقة للإعدام حالياً (${state.alertItems.length})',
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final desktop = constraints.maxWidth >= 900;
+              final wide = constraints.maxWidth >= 1200;
+              return Column(
+                children: [
+                  _buildHeader(state, desktop),
+                  Material(
+                    color: Colors.white,
+                    child: TabBar(
+                      controller: _tabController,
+                      isScrollable: !desktop,
+                      tabAlignment: desktop
+                          ? TabAlignment.fill
+                          : TabAlignment.start,
+                      labelColor: AppColors.dangerRed,
+                      unselectedLabelColor: AppColors.textSecondary,
+                      indicatorColor: AppColors.dangerRed,
+                      indicatorWeight: 3,
+                      tabs: [
+                        Tab(
+                          icon: const Icon(LucideIcons.triangleAlert, size: 18),
+                          text: 'المستحق للإعدام (${state.alertItems.length})',
+                        ),
+                        Tab(
+                          icon: const Icon(LucideIcons.history, size: 18),
+                          text:
+                              'سجل الإعدامات (${state.sourceFilteredHistory.length})',
+                        ),
+                      ],
                     ),
-                    Tab(
-                      icon: const Icon(LucideIcons.calendarSearch, size: 18),
-                      text:
-                          'سجل الإعدامات والبحث من فترة لفترة (${state.sourceFilteredHistory.length})',
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildActiveTab(state, desktop, wide),
+                        _buildHistoryTab(state, desktop, wide),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    state.isLoading
-                        ? const ResponsiveColdStorageShimmer(
-                            mode: ShimmerLayoutMode.tableList,
-                          )
-                        : _buildActiveAlertsTab(context, state),
-                    state.isLoading
-                        ? const ResponsiveColdStorageShimmer(
-                            mode: ShimmerLayoutMode.tableList,
-                          )
-                        : _buildHistorySearchTab(context, state),
-                  ],
-                ),
-              ),
-            ],
+                  ),
+                ],
+              );
+            },
           ),
         );
       },
     );
   }
 
-  Widget _buildActiveAlertsTab(BuildContext context, CondemnationsState state) {
-    final List<Widget> alertCards = [];
-    for (final item in state.alertItems) {
-      alertCards.add(
-        Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color: AppColors.dangerRed.withValues(alpha: 0.45),
-              width: 1.3,
-            ),
-          ),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: AppColors.dangerRed.withValues(alpha: 0.14),
-              child: Text(
-                '${item.daysUntilExpiry}d',
-                style: const TextStyle(
+  Widget _buildHeader(CondemnationsState state, bool desktop) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: desktop ? 28 : 16,
+        vertical: 16,
+      ),
+      color: AppColors.scaffoldBackground,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1500),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.dangerRed.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: const Icon(
+                  LucideIcons.flame,
                   color: AppColors.dangerRed,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 12,
+                  size: 24,
                 ),
               ),
-            ),
-            title: Text(
-              '${item.itemName} (${item.quantity} ${item.unitArLabel})',
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'الراك: [${item.slotCode}] | الجهة: ${item.sourceArLabel} | المستلم: ${item.receivedByName}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                Text(
-                  'الإنتاج: ${_fmtDate(item.productionDate)} | الانتهاء: ${_fmtDate(item.expiryDate)} (${item.isExpired ? "منتهي الصلاحية" : "مقترب من الانتهاء"})',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: item.isExpired
-                        ? AppColors.dangerRed
-                        : AppColors.warningAmber,
-                  ),
-                ),
-              ],
-            ),
-            trailing: AppActionButton(
-              label: 'اعتماد الإعدام',
-              icon: LucideIcons.flame,
-              variant: AppButtonVariant.danger,
-              onPressed: () => _showApproveCondemnationDialog(context, item),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return RepaintBoundary(
-      child: RefreshIndicator(
-        onRefresh: () =>
-            context.read<CondemnationsCubit>().loadCondemnationsData(),
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              color: AppColors.dangerRed.withValues(alpha: 0.08),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  runSpacing: 10,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          LucideIcons.flame,
-                          color: AppColors.dangerRed,
-                        ),
-                        const SizedBox(width: 10),
-                        Flexible(
-                          child: Text(
-                            'حساب الإعدامات التلقائي بتوقيت مصر (حد الثلاجة: ${state.globalThresholdDays} يوم | تنبيهك الشخصي: ${state.userCustomAlertDays} يوم)',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13.5,
-                            ),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      'إدارة الإعدامات',
+                      style: TextStyle(
+                        fontSize: desktop ? 21 : 18,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.primaryNavy,
+                      ),
                     ),
-                    AppActionButton(
-                      label: 'طباعة المستحق للإعدام PDF',
-                      icon: LucideIcons.printer,
-                      variant: AppButtonVariant.danger,
-                      onPressed: () => _printAlertsPdf(state),
+                    const SizedBox(height: 3),
+                    Text(
+                      'متابعة الأصناف المستحقة ومراجعة سجل الإعدام المعتمد',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            if (alertCards.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(
-                  child: Text(
-                    'ممتاز! لا توجد أي أصناف مستحقة للإعدام في الثلاجة حالياً.',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              )
-            else
-              Column(children: alertCards),
-          ],
+              if (desktop) _thresholdBadge(state),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildHistorySearchTab(BuildContext context, CondemnationsState state) {
-    final cubit = context.read<CondemnationsCubit>();
+  Widget _thresholdBadge(CondemnationsState state) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: AppColors.borderLight),
+    ),
+    child: Text(
+      'حد الثلاجة ${state.globalThresholdDays} أيام  •  التنبيه الشخصي ${state.userCustomAlertDays} أيام',
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: AppColors.primaryNavy,
+      ),
+    ),
+  );
 
-    return RepaintBoundary(
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildActiveTab(CondemnationsState state, bool desktop, bool wide) {
+    final cubit = context.read<CondemnationsCubit>();
+    return RefreshIndicator(
+      onRefresh: () => cubit.loadCondemnationsData(),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final maxWidth = desktop ? 1450.0 : double.infinity;
+          final columns = wide
+              ? 3
+              : desktop
+              ? 2
+              : 1;
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.all(desktop ? 24 : 14),
+            children: [
+              Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Expanded(
+                      _buildThresholdPanel(state, desktop),
+                      const SizedBox(height: 16),
+                      if (state.isLoading)
+                        const ResponsiveColdStorageShimmer(
+                          mode: ShimmerLayoutMode.dashboardCards,
+                          itemCountOverride: 6,
+                        )
+                      else if (state.alertItems.isEmpty)
+                        _emptyState(
+                          'لا توجد أصناف مستحقة للإعدام حالياً',
+                          'سيظهر هنا أي صنف يدخل ضمن فترة التنبيه أو تنتهي صلاحيته.',
+                          LucideIcons.shieldCheck,
+                        )
+                      else
+                        _responsiveCards(
+                          state.alertItems.length,
+                          columns,
+                          (i) => _alertCard(state.alertItems[i]),
+                          desktop,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildThresholdPanel(
+    CondemnationsState state,
+    bool desktop,
+  ) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: AppColors.dangerRed.withValues(alpha: .06),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: AppColors.dangerRed.withValues(alpha: .16)),
+    ),
+    child: Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      runSpacing: 12,
+      spacing: 12,
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 650),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(LucideIcons.clockAlert, color: AppColors.dangerRed),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'مراقبة صلاحية المخزون',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'حد الثلاجة: ${state.globalThresholdDays} يوم  •  تنبيهك الشخصي: ${state.userCustomAlertDays} يوم',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _alertCard(CondemnationAlertItemEntity item) => Card(
+    elevation: 1,
+    margin: EdgeInsets.zero,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+      side: BorderSide(color: AppColors.dangerRed.withValues(alpha: .18)),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.dangerRed.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: const Icon(
+                  LucideIcons.packageX,
+                  color: AppColors.dangerRed,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  item.itemName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    color: AppColors.primaryNavy,
+                  ),
+                ),
+              ),
+              _statusPill(
+                item.isExpired ? 'منتهي' : 'قارب الانتهاء',
+                item.isExpired,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${item.quantity} ${item.unitArLabel}',
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+              color: AppColors.dangerRed,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _detailLine(LucideIcons.mapPin, 'الموقع', item.slotCode),
+          _detailLine(LucideIcons.factory, 'الجهة', item.sourceArLabel),
+          _detailLine(LucideIcons.user, 'المستلم', item.receivedByName),
+          _detailLine(
+            LucideIcons.calendar,
+            'الإنتاج / الانتهاء',
+            '${_fmtDate(item.productionDate)}  •  ${_fmtDate(item.expiryDate)}',
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.dangerRed,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              onPressed: () => _showApproveCondemnationDialog(context, item),
+              icon: const Icon(LucideIcons.flame, size: 18),
+              label: const Text(
+                'مراجعة واعتماد الإعدام',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _buildHistoryTab(CondemnationsState state, bool desktop, bool wide) {
+    final cubit = context.read<CondemnationsCubit>();
+    final q = _query.trim().toLowerCase();
+    final records = state.sourceFilteredHistory
+        .where(
+          (r) =>
+              q.isEmpty ||
+              r.itemName.toLowerCase().contains(q) ||
+              r.slotCode.toLowerCase().contains(q) ||
+              r.reason.toLowerCase().contains(q) ||
+              r.approvedByName.toLowerCase().contains(q),
+        )
+        .toList();
+    return RefreshIndicator(
+      onRefresh: () => cubit.loadCondemnationsData(),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.all(desktop ? 24 : 14),
+        children: [
+          Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: desktop ? 1450 : double.infinity,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _historyFilters(state, desktop),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
                         child: Text(
-                          'البحث في سجل الإعدامات من فترة لفترة (من تاريخ -> إلى تاريخ)',
+                          'العمليات المسجلة',
                           style: TextStyle(
-                            fontSize: 15.5,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w900,
+                            fontSize: desktop ? 19 : 16,
                             color: AppColors.primaryNavy,
                           ),
                         ),
                       ),
-                      AppActionButton(
-                        label: 'تحديث السجل',
-                        icon: LucideIcons.refreshCw,
-                        variant: AppButtonVariant.outline,
-                        onPressed: () => cubit.loadCondemnationsData(),
+                      Text(
+                        '${records.length} سجل',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    decoration: const InputDecoration(
-                      labelText:
-                          'ابحث باسم الصنف، كود الراك، سبب الإعدام، أو اسم المعتمد...',
-                      prefixIcon: Icon(LucideIcons.search),
+                  if (state.isLoading)
+                    const ResponsiveColdStorageShimmer(
+                      mode: ShimmerLayoutMode.tableList,
+                      itemCountOverride: 7,
+                    )
+                  else if (records.isEmpty)
+                    _emptyState(
+                      'لا توجد نتائج مطابقة',
+                      'غيّر الفترة أو كلمات البحث أو مصدر العملية.',
+                      LucideIcons.searchX,
+                    )
+                  else
+                    _responsiveCards(
+                      records.length,
+                      wide
+                          ? 3
+                          : desktop
+                          ? 2
+                          : 1,
+                      (i) => _historyCard(records[i]),
+                      desktop,
                     ),
-                    onChanged: (v) => _searchQueryNotifier.value = v,
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      OutlinedButton.icon(
-                        icon: const Icon(LucideIcons.calendar, size: 16),
-                        label: Text(
-                          state.fromDateFilter == null
-                              ? 'من تاريخ: البداية'
-                              : 'من تاريخ: ${_fmtDate(state.fromDateFilter!)}',
-                        ),
-                        onPressed: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: state.fromDateFilter ?? DateTime.now(),
-                            firstDate: DateTime(2024),
-                            lastDate: DateTime(2035),
-                          );
-                          if (picked != null) {
-                            await cubit.applyDateRangeFilter(
-                              fromDate: picked,
-                              toDate: state.toDateFilter,
-                            );
-                          }
-                        },
-                      ),
-                      OutlinedButton.icon(
-                        icon: const Icon(LucideIcons.calendarCheck, size: 16),
-                        label: Text(
-                          state.toDateFilter == null
-                              ? 'إلى تاريخ: اليوم'
-                              : 'إلى تاريخ: ${_fmtDate(state.toDateFilter!)}',
-                        ),
-                        onPressed: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: state.toDateFilter ?? DateTime.now(),
-                            firstDate: DateTime(2024),
-                            lastDate: DateTime(2035),
-                          );
-                          if (picked != null) {
-                            await cubit.applyDateRangeFilter(
-                              fromDate: state.fromDateFilter,
-                              toDate: picked,
-                            );
-                          }
-                        },
-                      ),
-                      ChoiceChip(
-                        selected: state.sourceFilter == 'ALL',
-                        label: const Text('كل الجهات'),
-                        onSelected: (_) => cubit.selectSourceFilter('ALL'),
-                      ),
-                      ChoiceChip(
-                        selected: state.sourceFilter == 'production',
-                        label: const Text('الإنتاج فقط'),
-                        onSelected: (_) =>
-                            cubit.selectSourceFilter('production'),
-                      ),
-                      ChoiceChip(
-                        selected: state.sourceFilter == 'quality_inspection',
-                        label: const Text('نتيجة فحص الجودة فقط'),
-                        onSelected: (_) =>
-                            cubit.selectSourceFilter('quality_inspection'),
-                      ),
-                      if (state.fromDateFilter != null ||
-                          state.toDateFilter != null ||
-                          state.sourceFilter != 'ALL')
-                        TextButton.icon(
-                          icon: const Icon(LucideIcons.rotateCcw, size: 16),
-                          label: const Text('إعادة ضبط الفترة'),
-                          onPressed: () {
-                            _searchQueryNotifier.value = '';
-                            cubit.selectSourceFilter('ALL');
-                            cubit.applyDateRangeFilter(
-                              fromDate: null,
-                              toDate: null,
-                            );
-                          },
-                        ),
-                    ],
-                  ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          ValueListenableBuilder<String>(
-            valueListenable: _searchQueryNotifier,
-            builder: (context, query, _) {
-              final baseList = state.sourceFilteredHistory;
-              final filtered = baseList.where((rec) {
-                if (query.trim().isEmpty) return true;
-                final q = query.trim().toLowerCase();
-                return rec.itemName.toLowerCase().contains(q) ||
-                    rec.slotCode.toLowerCase().contains(q) ||
-                    rec.reason.toLowerCase().contains(q) ||
-                    rec.approvedByName.toLowerCase().contains(q);
-              }).toList();
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: AppActionButton(
-                      label:
-                          'طباعة سجل الفترة المحددة PDF (${filtered.length} سجل)',
-                      icon: LucideIcons.fileText,
-                      variant: AppButtonVariant.danger,
-                      onPressed: () => _printHistoryPdf(state, filtered),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  if (filtered.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(32),
-                      child: Center(
-                        child: Text('لا توجد سجلات إعدام في الفترة المحددة.'),
-                      ),
-                    )
-                  else
-                    ..._buildHistoryCardsList(filtered),
-                ],
-              );
-            },
           ),
         ],
       ),
     );
   }
 
-  List<Widget> _buildHistoryCardsList(
-    List<CondemnationHistoryRecordEntity> records,
-  ) {
-    final List<Widget> widgets = [];
-    for (final rec in records) {
-      widgets.add(
-        Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: AppColors.dangerRed.withValues(alpha: 0.12),
-              child: const Icon(
-                LucideIcons.trash2,
-                color: AppColors.dangerRed,
-                size: 18,
-              ),
-            ),
-            title: Text(
-              '${rec.itemName} — الكمية المعدمة: ${rec.condemnedQuantity} ${rec.unitArLabel}',
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'الراك: [${rec.slotCode}] | الجهة: ${rec.sourceArLabel} | السبب: ${rec.reason}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                Text(
-                  'الإنتاج: ${_fmtDate(rec.productionDate)} | الانتهاء: ${_fmtDate(rec.expiryDate)} | اعتمد بواسطة: ${rec.approvedByName}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ],
-            ),
-            trailing: Text(
-              _fmtDateTime(rec.createdAt),
-              textAlign: TextAlign.left,
-              style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.textSecondary,
+  Widget _historyFilters(CondemnationsState state, bool desktop) {
+    final cubit = context.read<CondemnationsCubit>();
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderLight),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _searchController,
+            onChanged: (v) => setState(() => _query = v),
+            decoration: InputDecoration(
+              hintText: 'ابحث بالصنف أو الموقع أو السبب أو اسم المعتمد',
+              prefixIcon: const Icon(LucideIcons.search),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _query = '');
+                      },
+                      icon: const Icon(LucideIcons.x),
+                    ),
+              filled: true,
+              fillColor: AppColors.scaffoldBackground,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(13),
+                borderSide: BorderSide.none,
               ),
             ),
           ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _filterDateButton(
+                'من: ${state.fromDateFilter == null ? 'البداية' : _fmtDate(state.fromDateFilter!)}',
+                () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: state.fromDateFilter ?? DateTime.now(),
+                    firstDate: DateTime(2024),
+                    lastDate: DateTime(2035),
+                  );
+                  if (d != null && mounted)
+                    await cubit.applyDateRangeFilter(
+                      fromDate: d,
+                      toDate: state.toDateFilter,
+                    );
+                },
+              ),
+              _filterDateButton(
+                'إلى: ${state.toDateFilter == null ? 'اليوم' : _fmtDate(state.toDateFilter!)}',
+                () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: state.toDateFilter ?? DateTime.now(),
+                    firstDate: DateTime(2024),
+                    lastDate: DateTime(2035),
+                  );
+                  if (d != null && mounted)
+                    await cubit.applyDateRangeFilter(
+                      fromDate: state.fromDateFilter,
+                      toDate: d,
+                    );
+                },
+              ),
+              _sourceChip('كل الجهات', 'ALL', state.sourceFilter),
+              _sourceChip('الإنتاج', 'production', state.sourceFilter),
+              _sourceChip(
+                'فحص الجودة',
+                'quality_inspection',
+                state.sourceFilter,
+              ),
+              if (state.fromDateFilter != null ||
+                  state.toDateFilter != null ||
+                  state.sourceFilter != 'ALL' ||
+                  _query.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _query = '');
+                    cubit.selectSourceFilter('ALL');
+                    cubit.applyDateRangeFilter(fromDate: null, toDate: null);
+                  },
+                  icon: const Icon(LucideIcons.rotateCcw, size: 16),
+                  label: const Text('مسح الفلاتر'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filterDateButton(String label, VoidCallback onPressed) =>
+      OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(LucideIcons.calendarDays, size: 16),
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         ),
       );
-    }
-    return widgets;
+
+  Widget _sourceChip(String label, String value, String selected) => ChoiceChip(
+    label: Text(label),
+    selected: selected == value,
+    onSelected: (_) =>
+        context.read<CondemnationsCubit>().selectSourceFilter(value),
+    selectedColor: AppColors.zoneC2Blue.withValues(alpha: .12),
+    labelStyle: TextStyle(
+      fontWeight: FontWeight.w700,
+      color: selected == value ? AppColors.zoneC2Blue : AppColors.textSecondary,
+    ),
+  );
+
+  Widget _historyCard(CondemnationHistoryRecordEntity rec) => Card(
+    elevation: 1,
+    margin: EdgeInsets.zero,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.dangerRed.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  LucideIcons.trash2,
+                  color: AppColors.dangerRed,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  rec.itemName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.primaryNavy,
+                  ),
+                ),
+              ),
+              Text(
+                '${rec.condemnedQuantity} ${rec.unitArLabel}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.dangerRed,
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 22),
+          _detailLine(LucideIcons.mapPin, 'الموقع', rec.slotCode),
+          _detailLine(LucideIcons.building2, 'الجهة', rec.sourceArLabel),
+          _detailLine(LucideIcons.fileText, 'السبب', rec.reason),
+          _detailLine(
+            LucideIcons.userCheck,
+            'اعتمد بواسطة',
+            rec.approvedByName,
+          ),
+          _detailLine(
+            LucideIcons.calendarClock,
+            'التاريخ',
+            _fmtDateTime(rec.createdAt),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _detailLine(IconData icon, String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: 7),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 15, color: AppColors.textSecondary),
+        const SizedBox(width: 7),
+        Text(
+          '$label: ',
+          style: const TextStyle(
+            fontSize: 11.5,
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.primaryNavy,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _statusPill(String label, bool expired) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+    decoration: BoxDecoration(
+      color: (expired ? AppColors.dangerRed : AppColors.warningAmber)
+          .withValues(alpha: .12),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        fontSize: 10.5,
+        fontWeight: FontWeight.w800,
+        color: expired ? AppColors.dangerRed : AppColors.warningAmber,
+      ),
+    ),
+  );
+
+  Widget _responsiveCards(
+    int count,
+    int columns,
+    Widget Function(int) builder,
+    bool desktop,
+  ) {
+    if (columns == 1)
+      return Column(
+        children: List.generate(
+          count,
+          (i) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: builder(i),
+          ),
+        ),
+      );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final gap = 14.0;
+        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: List.generate(
+            count,
+            (i) => SizedBox(width: width, child: builder(i)),
+          ),
+        );
+      },
+    );
   }
+
+  Widget _emptyState(String title, String subtitle, IconData icon) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 42),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: AppColors.borderLight),
+    ),
+    child: Column(
+      children: [
+        Icon(icon, size: 42, color: AppColors.successGreen),
+        const SizedBox(height: 12),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontWeight: FontWeight.w900,
+            fontSize: 16,
+            color: AppColors.primaryNavy,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          subtitle,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+        ),
+      ],
+    ),
+  );
 
   void _showApproveCondemnationDialog(
     BuildContext context,
@@ -567,8 +786,9 @@ class _CondemnationsPageState extends State<CondemnationsPage> {
               const SizedBox(height: 12),
               TextField(
                 controller: qtyCtrl,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: const InputDecoration(
                   labelText: 'الكمية المراد إعدامها',
                   prefixIcon: Icon(LucideIcons.hash),

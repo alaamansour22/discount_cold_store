@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../domain/entities/auth_user_entity.dart';
 
 typedef AuthJsonMap = Map<String, dynamic>;
@@ -34,7 +36,10 @@ class AuthUserModel extends AuthUserEntity {
 
 abstract class IAuthRemoteDataSource {
   Future<AuthUserModel?> getCurrentSessionUser();
-  Future<AuthUserModel> signIn({required String email, required String password});
+  Future<AuthUserModel> signIn({
+    required String email,
+    required String password,
+  });
   Future<void> updatePassword({required String newPassword});
   Future<void> signOut();
   Stream<AuthUserModel?> onAuthStateChanged();
@@ -52,7 +57,9 @@ class AuthRemoteDataSourceImpl implements IAuthRemoteDataSource {
         .eq('id', user.id)
         .maybeSingle();
 
-    final map = profileData != null ? AuthJsonMap.from(profileData as Map) : null;
+    final map = profileData != null
+        ? AuthJsonMap.from(profileData as Map)
+        : null;
     final model = AuthUserModel.fromUserAndProfile(user, map);
 
     if (!model.isActive) {
@@ -88,9 +95,7 @@ class AuthRemoteDataSourceImpl implements IAuthRemoteDataSource {
 
   @override
   Future<void> updatePassword({required String newPassword}) async {
-    await _supabase.auth.updateUser(
-      UserAttributes(password: newPassword),
-    );
+    await _supabase.auth.updateUser(UserAttributes(password: newPassword));
   }
 
   @override

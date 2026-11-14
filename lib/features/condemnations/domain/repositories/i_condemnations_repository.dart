@@ -2,11 +2,14 @@ import '../entities/condemnations_entities.dart';
 
 abstract class ICondemnationsRepository {
   /// جلب الأصناف المستحقة للإعدام حالياً + حدود التنبيه (العام والخاص بالمستخدم)
-  Future<({
-    List<CondemnationAlertItemEntity> alertItems,
-    int globalThresholdDays,
-    int userCustomAlertDays,
-  })> getActiveCondemnationAlerts();
+  Future<
+    ({
+      List<CondemnationAlertItemEntity> alertItems,
+      int globalThresholdDays,
+      int userCustomAlertDays,
+    })
+  >
+  getActiveCondemnationAlerts();
 
   /// جلب سجل الإعدامات الفعلي مع دعم الفلترة من تاريخ إلى تاريخ
   Future<List<CondemnationHistoryRecordEntity>> getCondemnationRecords({

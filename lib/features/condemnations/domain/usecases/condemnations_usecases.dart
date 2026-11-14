@@ -6,11 +6,14 @@ class GetActiveCondemnationAlertsUseCase {
   final ICondemnationsRepository _repository;
   const GetActiveCondemnationAlertsUseCase(this._repository);
 
-  Future<({
-    List<CondemnationAlertItemEntity> alertItems,
-    int globalThresholdDays,
-    int userCustomAlertDays,
-  })> call() => _repository.getActiveCondemnationAlerts();
+  Future<
+    ({
+      List<CondemnationAlertItemEntity> alertItems,
+      int globalThresholdDays,
+      int userCustomAlertDays,
+    })
+  >
+  call() => _repository.getActiveCondemnationAlerts();
 }
 
 class GetCondemnationRecordsUseCase {
@@ -48,7 +51,8 @@ class ApproveItemCondemnationUseCase {
   }) async {
     if (quantityToCondemn <= 0 || quantityToCondemn > availableQuantity) {
       throw AppFailure(
-        message: 'الكمية المطلوب إعدامها ($quantityToCondemn) غير صحيحة أو أكبر من المتاح ($availableQuantity).',
+        message:
+            'الكمية المطلوب إعدامها ($quantityToCondemn) غير صحيحة أو أكبر من المتاح ($availableQuantity).',
         type: FailureType.validationError,
       );
     }
@@ -75,9 +79,10 @@ class CondemnationsUseCases {
   final WatchRealtimeCondemnationChangesUseCase watchRealtimeChanges;
 
   CondemnationsUseCases(ICondemnationsRepository repository)
-      : getActiveAlerts = GetActiveCondemnationAlertsUseCase(repository),
-        getHistoryRecords = GetCondemnationRecordsUseCase(repository),
-        approveCondemnation = ApproveItemCondemnationUseCase(repository),
-        watchRealtimeChanges =
-            WatchRealtimeCondemnationChangesUseCase(repository);
+    : getActiveAlerts = GetActiveCondemnationAlertsUseCase(repository),
+      getHistoryRecords = GetCondemnationRecordsUseCase(repository),
+      approveCondemnation = ApproveItemCondemnationUseCase(repository),
+      watchRealtimeChanges = WatchRealtimeCondemnationChangesUseCase(
+        repository,
+      );
 }

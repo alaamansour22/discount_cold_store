@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:equatable/equatable.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -17,11 +18,7 @@ class AppFailure extends Equatable implements Exception {
   final String? code;
   final FailureType type;
 
-  const AppFailure({
-    required this.message,
-    required this.type,
-    this.code,
-  });
+  const AppFailure({required this.message, required this.type, this.code});
 
   @override
   String toString() => message;
@@ -65,7 +62,8 @@ class ErrorHandler {
     }
     if (raw.contains('INSUFFICIENT_QUANTITY')) {
       return const AppFailure(
-        message: 'الكمية المطلوبة أكبر من الرصيد الفعلي المتاح حالياً على البالتة.',
+        message:
+            'الكمية المطلوبة أكبر من الرصيد الفعلي المتاح حالياً على البالتة.',
         code: 'INSUFFICIENT_QUANTITY',
         type: FailureType.insufficientQuantity,
       );
@@ -103,7 +101,8 @@ class ErrorHandler {
       );
     }
 
-    if (msg.contains('ITEM_NOT_AVAILABLE') || msg.contains('PALLET_NOT_ACTIVE')) {
+    if (msg.contains('ITEM_NOT_AVAILABLE') ||
+        msg.contains('PALLET_NOT_ACTIVE')) {
       return const AppFailure(
         message: 'الصنف أو البالتة لم تعد متاحة بالرصيد (تم صرفها أو إعدامها للتو بواسطة زميل آخر).',
         code: 'ITEM_NOT_AVAILABLE',

@@ -1,14 +1,10 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 
-enum AppButtonVariant {
-  primary,
-  secondary,
-  danger,
-  success,
-  outline,
-}
+enum AppButtonVariant { primary, secondary, danger, success, outline }
 
 /// زر موحد للتطبيق يمنع الضغط المتكرر ويدعم كلا الاسمين isFullWidth و fullWidth
 class AppActionButton extends StatefulWidget {
@@ -102,10 +98,7 @@ class _AppActionButtonState extends State<AppActionButton> {
           SizedBox(
             width: 18,
             height: 18,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.2,
-              color: fgColor,
-            ),
+            child: CircularProgressIndicator(strokeWidth: 2.2, color: fgColor),
           ),
           const SizedBox(width: 10),
         ] else if (widget.icon != null) ...[

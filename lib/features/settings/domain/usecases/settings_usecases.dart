@@ -27,7 +27,8 @@ class SaveNotificationSettingsUseCase {
     }
     if (userCustomAlertDays < 1 || userCustomAlertDays > 365) {
       throw const AppFailure(
-        message: 'مدة التنبيه الشخصي قبل الإعدام يجب أن تكون بين 1 و 365 يوماً.',
+        message:
+            'مدة التنبيه الشخصي قبل الإعدام يجب أن تكون بين 1 و 365 يوماً.',
         type: FailureType.validationError,
       );
     }
@@ -47,6 +48,6 @@ class SettingsUseCases {
   final SaveNotificationSettingsUseCase saveSettings;
 
   SettingsUseCases(ISettingsRepository repository)
-      : getSettings = GetSettingsUseCase(repository),
-        saveSettings = SaveNotificationSettingsUseCase(repository);
+    : getSettings = GetSettingsUseCase(repository),
+      saveSettings = SaveNotificationSettingsUseCase(repository);
 }

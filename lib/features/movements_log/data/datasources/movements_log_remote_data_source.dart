@@ -1,6 +1,8 @@
 import 'dart:async';
-import 'package:discount_cold_store/features/receiving_dispatch/domain/entities/receiving_dispatch_entities.dart';
+
+import 'package:discount_cold_store/features/receiving/domain/entities/receiving_entities.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/movements_log_models.dart';
 
 abstract class IMovementsLogRemoteDataSource {
@@ -15,7 +17,8 @@ abstract class IMovementsLogRemoteDataSource {
   Stream<void> subscribeToMovements();
 }
 
-class MovementsLogRemoteDataSourceImpl implements IMovementsLogRemoteDataSource {
+class MovementsLogRemoteDataSourceImpl
+    implements IMovementsLogRemoteDataSource {
   final SupabaseClient _supabase;
 
   MovementsLogRemoteDataSourceImpl(this._supabase);
@@ -33,8 +36,11 @@ class MovementsLogRemoteDataSourceImpl implements IMovementsLogRemoteDataSource 
         .select('*, profiles(full_name)');
 
     if (fromDate != null) {
-      final start =
-          DateTime(fromDate.year, fromDate.month, fromDate.day).toIso8601String();
+      final start = DateTime(
+        fromDate.year,
+        fromDate.month,
+        fromDate.day,
+      ).toIso8601String();
       query = query.gte('created_at', start);
     }
 

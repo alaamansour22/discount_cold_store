@@ -42,15 +42,15 @@ class CondemnationAlertItemEntity extends Equatable {
 
   @override
   List<Object?> get props => [
-        palletItemId,
-        palletId,
-        itemName,
-        quantity,
-        expiryDate,
-        slotCode,
-        daysUntilExpiry,
-        healthStatus,
-      ];
+    palletItemId,
+    palletId,
+    itemName,
+    quantity,
+    expiryDate,
+    slotCode,
+    daysUntilExpiry,
+    healthStatus,
+  ];
 }
 
 /// كيان سجل الإعدام الفعلي المعتمد (من جدول: condemnation_records)
@@ -95,11 +95,11 @@ class CondemnationHistoryRecordEntity extends Equatable {
 
   @override
   List<Object?> get props => [
-        id,
-        palletId,
-        itemName,
-        condemnedQuantity,
-        slotCode,
-        createdAt,
-      ];
+    id,
+    palletId,
+    itemName,
+    condemnedQuantity,
+    slotCode,
+    createdAt,
+  ];
 }

@@ -15,9 +15,9 @@ class NotificationSettingsEntity extends Equatable {
 
   @override
   List<Object?> get props => [
-        globalThresholdDays,
-        userCustomAlertDays,
-        notificationsEnabled,
-        receiveMondayAlert,
-      ];
+    globalThresholdDays,
+    userCustomAlertDays,
+    notificationsEnabled,
+    receiveMondayAlert,
+  ];
 }

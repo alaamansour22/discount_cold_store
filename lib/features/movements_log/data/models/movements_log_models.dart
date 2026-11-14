@@ -1,7 +1,5 @@
 import 'package:discount_cold_store/features/movements_log/domain/entities/movements_log_entities.dart';
-import 'package:discount_cold_store/features/receiving_dispatch/domain/entities/receiving_dispatch_entities.dart';
-
-
+import 'package:discount_cold_store/features/receiving/domain/entities/receiving_entities.dart';
 
 typedef MoveJsonMap = Map<String, dynamic>;
 
@@ -36,7 +34,9 @@ class SystemMovementModel extends SystemMovementEntity {
       quantityChanged: (json['quantity_changed'] as num?)?.toDouble() ?? 0.0,
       newQuantity: (json['new_quantity'] as num?)?.toDouble() ?? 0.0,
       unit: PackageUnit.fromDb(json['unit'] as String? ?? 'carton'),
-      sourceEntity: ReceivingSource.fromDb(json['source_entity'] as String? ?? 'production'),
+      sourceEntity: ReceivingSource.fromDb(
+        json['source_entity'] as String? ?? 'production',
+      ),
       fromSlotCode: json['from_slot_code'] as String?,
       toSlotCode: json['to_slot_code'] as String?,
       notes: json['notes'] as String?,

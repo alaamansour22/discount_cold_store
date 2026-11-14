@@ -26,7 +26,9 @@ class TransferModelMapper {
       itemName: json['item_name'] as String? ?? '',
       quantity: (json['quantity'] as num?)?.toDouble() ?? 0.0,
       unitArLabel: unitToArabic(json['unit'] as String? ?? 'carton'),
-      sourceArLabel: sourceToArabic(json['source_entity'] as String? ?? 'production'),
+      sourceArLabel: sourceToArabic(
+        json['source_entity'] as String? ?? 'production',
+      ),
       daysUntilExpiry: (json['days_until_expiry'] as num?)?.toInt() ?? 0,
     );
   }

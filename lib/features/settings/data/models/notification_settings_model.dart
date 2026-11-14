@@ -23,8 +23,7 @@ class NotificationSettingsModel extends NotificationSettingsEntity {
           (profileJson?['custom_alert_days'] as num?)?.toInt() ?? globalDays,
       notificationsEnabled:
           profileJson?['notifications_enabled'] as bool? ?? true,
-      receiveMondayAlert:
-          profileJson?['receive_monday_alert'] as bool? ?? true,
+      receiveMondayAlert: profileJson?['receive_monday_alert'] as bool? ?? true,
     );
   }
 }

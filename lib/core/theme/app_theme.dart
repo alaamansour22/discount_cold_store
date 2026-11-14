@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../constants/app_assets.dart';
 
 /// كلاس الألوان الموحد الشامل لجميع الشاشات والـ Widgets
@@ -85,14 +86,15 @@ class AppTheme {
         color: cardBackground,
         elevation: 1.5,
         margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: Colors.blueGrey.shade200),

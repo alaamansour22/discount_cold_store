@@ -23,6 +23,73 @@ class DashboardNotificationEntity extends Equatable {
   List<Object?> get props => [id, isRead, createdAt];
 }
 
+class DashboardCriticalItemEntity extends Equatable {
+  final String palletItemId;
+  final String itemName;
+  final String slotCode;
+  final double quantity;
+  final String unit;
+  final int daysUntilExpiry;
+  final String healthStatus;
+
+  const DashboardCriticalItemEntity({
+    required this.palletItemId,
+    required this.itemName,
+    required this.slotCode,
+    required this.quantity,
+    required this.unit,
+    required this.daysUntilExpiry,
+    required this.healthStatus,
+  });
+
+  bool get isExpired => daysUntilExpiry <= 0 || healthStatus == 'expired';
+
+  @override
+  List<Object?> get props => [
+    palletItemId,
+    itemName,
+    slotCode,
+    quantity,
+    unit,
+    daysUntilExpiry,
+    healthStatus,
+  ];
+}
+
+class DashboardRecentMovementEntity extends Equatable {
+  final String id;
+  final String movementType;
+  final String itemName;
+  final double quantityChanged;
+  final String unit;
+  final String? fromSlotCode;
+  final String? toSlotCode;
+  final DateTime createdAt;
+
+  const DashboardRecentMovementEntity({
+    required this.id,
+    required this.movementType,
+    required this.itemName,
+    required this.quantityChanged,
+    required this.unit,
+    this.fromSlotCode,
+    this.toSlotCode,
+    required this.createdAt,
+  });
+
+  @override
+  List<Object?> get props => [
+    id,
+    movementType,
+    itemName,
+    quantityChanged,
+    unit,
+    fromSlotCode,
+    toSlotCode,
+    createdAt,
+  ];
+}
+
 class DashboardStatsEntity extends Equatable {
   final int totalSlots;
   final int occupiedSlots;
@@ -38,6 +105,8 @@ class DashboardStatsEntity extends Equatable {
   final int totalCondemnedRecordsCount;
   final int todayMovementsCount;
   final int userAlertDays;
+  final List<DashboardCriticalItemEntity> criticalItems;
+  final List<DashboardRecentMovementEntity> recentMovements;
 
   const DashboardStatsEntity({
     this.totalSlots = 320,
@@ -54,6 +123,8 @@ class DashboardStatsEntity extends Equatable {
     this.totalCondemnedRecordsCount = 0,
     this.todayMovementsCount = 0,
     this.userAlertDays = 7,
+    this.criticalItems = const [],
+    this.recentMovements = const [],
   });
 
   double get zoneC2OccupancyRate =>
@@ -65,21 +136,29 @@ class DashboardStatsEntity extends Equatable {
   double get overallOccupancyRate =>
       totalSlots == 0 ? 0 : occupiedSlots / totalSlots;
 
+  int get dueSoonOnlyCount =>
+      (nearExpiryAlertsCount - expiredItemsCount).clamp(0, activeItemsCount);
+
+  int get healthyItemsCount =>
+      (activeItemsCount - nearExpiryAlertsCount).clamp(0, activeItemsCount);
+
   @override
   List<Object?> get props => [
-        totalSlots,
-        occupiedSlots,
-        emptySlots,
-        zoneC2Total,
-        zoneC2Occupied,
-        zoneC3Total,
-        zoneC3Occupied,
-        mixedPalletsCount,
-        activeItemsCount,
-        nearExpiryAlertsCount,
-        expiredItemsCount,
-        totalCondemnedRecordsCount,
-        todayMovementsCount,
-        userAlertDays,
-      ];
+    totalSlots,
+    occupiedSlots,
+    emptySlots,
+    zoneC2Total,
+    zoneC2Occupied,
+    zoneC3Total,
+    zoneC3Occupied,
+    mixedPalletsCount,
+    activeItemsCount,
+    nearExpiryAlertsCount,
+    expiredItemsCount,
+    totalCondemnedRecordsCount,
+    todayMovementsCount,
+    userAlertDays,
+    criticalItems,
+    recentMovements,
+  ];
 }

@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../domain/entities/dashboard_stats_entity.dart';
 
 typedef DashboardJson = Map<String, dynamic>;
@@ -18,52 +20,101 @@ class DashboardRemoteDataSourceImpl implements IDashboardRemoteDataSource {
 
   @override
   Future<DashboardStatsEntity> fetchStats() async {
-    final userId = _supabase.auth.currentUser?.id;
+    // جلب الملخص المجمع من الـ View/RPC + القوائم المختصرة بالتوازي
+    final results = await Future.wait<dynamic>([
+      _fetchAggregatedSummary(),
+      _fetchCriticalItems(),
+      _fetchRecentMovements(),
+    ]);
 
-    final slotsData = await _supabase
-        .from('rack_slots')
-        .select('zone_code, is_occupied');
+    final summary = results[0] as DashboardJson;
+    final criticalItems = results[1] as List<DashboardCriticalItemEntity>;
+    final recentMovements = results[2] as List<DashboardRecentMovementEntity>;
 
-    final palletsData = await _supabase
-        .from('pallets')
-        .select('id, is_mixed')
-        .eq('status', 'in_stock');
+    return DashboardStatsEntity(
+      totalSlots: (summary['total_slots'] as num?)?.toInt() ?? 320,
+      occupiedSlots: (summary['occupied_slots'] as num?)?.toInt() ?? 0,
+      emptySlots: (summary['empty_slots'] as num?)?.toInt() ?? 320,
+      zoneC2Total: (summary['zone_c2_total'] as num?)?.toInt() ?? 208,
+      zoneC2Occupied: (summary['zone_c2_occupied'] as num?)?.toInt() ?? 0,
+      zoneC3Total: (summary['zone_c3_total'] as num?)?.toInt() ?? 112,
+      zoneC3Occupied: (summary['zone_c3_occupied'] as num?)?.toInt() ?? 0,
+      mixedPalletsCount:
+          (summary['mixed_pallets_count'] as num?)?.toInt() ?? 0,
+      activeItemsCount: (summary['active_items_count'] as num?)?.toInt() ?? 0,
+      nearExpiryAlertsCount:
+          (summary['near_expiry_alerts_count'] as num?)?.toInt() ?? 0,
+      expiredItemsCount:
+          (summary['expired_items_count'] as num?)?.toInt() ?? 0,
+      totalCondemnedRecordsCount:
+          (summary['total_condemned_records_count'] as num?)?.toInt() ?? 0,
+      todayMovementsCount:
+          (summary['today_movements_count'] as num?)?.toInt() ?? 0,
+      userAlertDays: (summary['user_alert_days'] as num?)?.toInt() ?? 7,
+      criticalItems: criticalItems,
+      recentMovements: recentMovements,
+    );
+  }
 
-    final activeItemsData = await _supabase
-        .from('v_active_pallet_items')
-        .select('days_until_expiry, condemnation_health_status');
-
-    final condemnationsData = await _supabase
-        .from('condemnation_records')
-        .select('id');
-
-    final todayStart = DateTime.now();
-    final startOfDayIso =
-        DateTime(todayStart.year, todayStart.month, todayStart.day)
-            .toIso8601String();
-
-    final todayMovementsData = await _supabase
-        .from('inventory_movements')
-        .select('id')
-        .gte('created_at', startOfDayIso);
-
-    int userAlertDays = 7;
-    if (userId != null) {
-      final profile = await _supabase
-          .from('profiles')
-          .select('custom_alert_days')
-          .eq('id', userId)
-          .maybeSingle();
-      if (profile != null) {
-        userAlertDays = (profile['custom_alert_days'] as num?)?.toInt() ?? 7;
+  Future<DashboardJson> _fetchAggregatedSummary() async {
+    try {
+      final rpcRes = await _supabase.rpc('rpc_get_dashboard_overview');
+      if (rpcRes is Map) {
+        return DashboardJson.from(rpcRes);
       }
+    } catch (_) {
+      // Fallback متوازي ومحسّن في حال لم تُنشأ الدالة في قاعدة البيانات بعد
     }
 
-    final slotsList = slotsData as List;
-    final palletsList = palletsData as List;
-    final itemsList = activeItemsData as List;
-    final condemnList = condemnationsData as List;
-    final todayMovList = todayMovementsData as List;
+    final userId = _supabase.auth.currentUser?.id;
+    final todayStart = DateTime.now();
+    final startOfDayIso = DateTime(
+      todayStart.year,
+      todayStart.month,
+      todayStart.day,
+    ).toIso8601String();
+
+    final parallel = await Future.wait<dynamic>([
+      _supabase
+          .from('rack_slots')
+          .select('zone_code, is_occupied')
+          .eq('is_active', true),
+      _supabase
+          .from('pallets')
+          .select('id')
+          .eq('status', 'in_stock')
+          .eq('is_mixed', true)
+          .count(CountOption.exact),
+      _supabase
+          .from('v_active_pallet_items')
+          .select('days_until_expiry, condemnation_health_status'),
+      _supabase
+          .from('condemnation_records')
+          .select('id')
+          .count(CountOption.exact),
+      _supabase
+          .from('inventory_movements')
+          .select('id')
+          .gte('created_at', startOfDayIso)
+          .count(CountOption.exact),
+      if (userId != null)
+        _supabase
+            .from('profiles')
+            .select('custom_alert_days')
+            .eq('id', userId)
+            .maybeSingle()
+      else
+        Future.value(null),
+    ]);
+
+    final slotsList = parallel[0] as List;
+    final mixedCount = (parallel[1] as PostgrestResponse).count;
+    final itemsList = parallel[2] as List;
+    final condemnCount = (parallel[3] as PostgrestResponse).count;
+    final todayMovCount = (parallel[4] as PostgrestResponse).count;
+    final profile = parallel[5] as Map<String, dynamic>?;
+
+    final userAlertDays = (profile?['custom_alert_days'] as num?)?.toInt() ?? 7;
 
     int totalSlots = slotsList.length;
     int occupiedSlots = 0;
@@ -86,12 +137,6 @@ class DashboardRemoteDataSourceImpl implements IDashboardRemoteDataSource {
       }
     }
 
-    int mixedCount = 0;
-    for (final raw in palletsList) {
-      final row = DashboardJson.from(raw as Map);
-      if (row['is_mixed'] == true) mixedCount++;
-    }
-
     int nearExpiryCount = 0;
     int expiredCount = 0;
     for (final raw in itemsList) {
@@ -105,22 +150,79 @@ class DashboardRemoteDataSourceImpl implements IDashboardRemoteDataSource {
       }
     }
 
-    return DashboardStatsEntity(
-      totalSlots: totalSlots,
-      occupiedSlots: occupiedSlots,
-      emptySlots: totalSlots - occupiedSlots,
-      zoneC2Total: c2Total,
-      zoneC2Occupied: c2Occupied,
-      zoneC3Total: c3Total,
-      zoneC3Occupied: c3Occupied,
-      mixedPalletsCount: mixedCount,
-      activeItemsCount: itemsList.length,
-      nearExpiryAlertsCount: nearExpiryCount + expiredCount,
-      expiredItemsCount: expiredCount,
-      totalCondemnedRecordsCount: condemnList.length,
-      todayMovementsCount: todayMovList.length,
-      userAlertDays: userAlertDays,
-    );
+    return {
+      'total_slots': totalSlots,
+      'occupied_slots': occupiedSlots,
+      'empty_slots': totalSlots - occupiedSlots,
+      'zone_c2_total': c2Total,
+      'zone_c2_occupied': c2Occupied,
+      'zone_c3_total': c3Total,
+      'zone_c3_occupied': c3Occupied,
+      'mixed_pallets_count': mixedCount,
+      'active_items_count': itemsList.length,
+      'near_expiry_alerts_count': nearExpiryCount + expiredCount,
+      'expired_items_count': expiredCount,
+      'total_condemned_records_count': condemnCount,
+      'today_movements_count': todayMovCount,
+      'user_alert_days': userAlertDays,
+    };
+  }
+
+  Future<List<DashboardCriticalItemEntity>> _fetchCriticalItems() async {
+    try {
+      final data = await _supabase
+          .from('v_active_pallet_items')
+          .select(
+            'pallet_item_id, item_name, slot_code, quantity, unit, days_until_expiry, condemnation_health_status',
+          )
+          .order('days_until_expiry', ascending: true)
+          .limit(6);
+
+      return (data as List).map((raw) {
+        final m = DashboardJson.from(raw as Map);
+        return DashboardCriticalItemEntity(
+          palletItemId: m['pallet_item_id']?.toString() ?? '',
+          itemName: m['item_name'] as String? ?? '',
+          slotCode: m['slot_code'] as String? ?? '',
+          quantity: (m['quantity'] as num?)?.toDouble() ?? 0,
+          unit: m['unit'] as String? ?? 'carton',
+          daysUntilExpiry: (m['days_until_expiry'] as num?)?.toInt() ?? 0,
+          healthStatus: m['condemnation_health_status'] as String? ?? 'healthy',
+        );
+      }).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<DashboardRecentMovementEntity>> _fetchRecentMovements() async {
+    try {
+      final data = await _supabase
+          .from('inventory_movements')
+          .select(
+            'id, movement_type, item_name, quantity_changed, unit, from_slot_code, to_slot_code, created_at',
+          )
+          .order('created_at', ascending: false)
+          .limit(6);
+
+      return (data as List).map((raw) {
+        final m = DashboardJson.from(raw as Map);
+        return DashboardRecentMovementEntity(
+          id: m['id']?.toString() ?? '',
+          movementType: m['movement_type'] as String? ?? '',
+          itemName: m['item_name'] as String? ?? '',
+          quantityChanged: (m['quantity_changed'] as num?)?.toDouble() ?? 0,
+          unit: m['unit'] as String? ?? 'carton',
+          fromSlotCode: m['from_slot_code'] as String?,
+          toSlotCode: m['to_slot_code'] as String?,
+          createdAt:
+              DateTime.tryParse(m['created_at']?.toString() ?? '')?.toLocal() ??
+              DateTime.now(),
+        );
+      }).toList();
+    } catch (_) {
+      return const [];
+    }
   }
 
   @override
@@ -175,7 +277,25 @@ class DashboardRemoteDataSourceImpl implements IDashboardRemoteDataSource {
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
+          table: 'pallets',
+          callback: (_) => controller.add(null),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
           table: 'pallet_items',
+          callback: (_) => controller.add(null),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'condemnation_records',
+          callback: (_) => controller.add(null),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'inventory_movements',
           callback: (_) => controller.add(null),
         )
         .onPostgresChanges(

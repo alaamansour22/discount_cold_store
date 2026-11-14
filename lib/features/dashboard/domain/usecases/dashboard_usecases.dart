@@ -38,9 +38,10 @@ class DashboardUseCases {
   final WatchRealtimeDashboardChangesUseCase watchRealtimeChanges;
 
   DashboardUseCases(IDashboardRepository repository)
-      : getStats = GetDashboardStatisticsUseCase(repository),
-        getNotifications = GetDashboardNotificationsUseCase(repository),
-        markAllNotificationsRead =
-            MarkAllDashboardNotificationsReadUseCase(repository),
-        watchRealtimeChanges = WatchRealtimeDashboardChangesUseCase(repository);
+    : getStats = GetDashboardStatisticsUseCase(repository),
+      getNotifications = GetDashboardNotificationsUseCase(repository),
+      markAllNotificationsRead = MarkAllDashboardNotificationsReadUseCase(
+        repository,
+      ),
+      watchRealtimeChanges = WatchRealtimeDashboardChangesUseCase(repository);
 }

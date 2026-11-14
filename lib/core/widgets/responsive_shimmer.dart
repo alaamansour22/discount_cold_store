@@ -2,11 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 
 /// أوضاع عرض الشيمر المتجاوب (يدعم جميع الأسماء القياسية في المشروع)
-enum ShimmerLayoutMode {
-  rackGrid,
-  tableList,
-  dashboardCards,
-}
+enum ShimmerLayoutMode { rackGrid, tableList, dashboardCards }
 
 /// شيمر متجاوب يقرأ أبعاد الشاشة تلقائياً عبر LayoutBuilder فقط (بدون MediaQuery لمنع إعادة الرسم مع الكيبورد)
 class ResponsiveColdStorageShimmer extends StatelessWidget {
@@ -34,6 +30,7 @@ class ResponsiveColdStorageShimmer extends StatelessWidget {
               child: ListView.separated(
                 padding: const EdgeInsets.all(16),
                 physics: const NeverScrollableScrollPhysics(),
+                shrinkWrap: true,
                 itemCount: rowsCount,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (_, __) => Container(
@@ -51,16 +48,18 @@ class ResponsiveColdStorageShimmer extends StatelessWidget {
           final int crossAxisCount = width >= 1150
               ? 4
               : width >= 750
-                  ? 3
-                  : width >= 500
-                      ? 2
-                      : 1;
+              ? 3
+              : width >= 500
+              ? 2
+              : 1;
 
-          final int count = itemCountOverride ??
+          final int count =
+              itemCountOverride ??
               (mode == ShimmerLayoutMode.dashboardCards ? 6 : 12);
 
-          final double cardHeight =
-              mode == ShimmerLayoutMode.dashboardCards ? 132.0 : 182.0;
+          final double cardHeight = mode == ShimmerLayoutMode.dashboardCards
+              ? 132.0
+              : 182.0;
 
           return Shimmer.fromColors(
             baseColor: Colors.grey.shade300,
@@ -68,6 +67,7 @@ class ResponsiveColdStorageShimmer extends StatelessWidget {
             child: GridView.builder(
               padding: const EdgeInsets.all(16),
               physics: const NeverScrollableScrollPhysics(),
+              shrinkWrap: true,
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: crossAxisCount,
                 mainAxisSpacing: 12,

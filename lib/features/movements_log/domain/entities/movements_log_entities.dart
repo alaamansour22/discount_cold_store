@@ -1,4 +1,4 @@
-import 'package:discount_cold_store/features/receiving_dispatch/domain/entities/receiving_dispatch_entities.dart';
+import 'package:discount_cold_store/features/receiving/domain/entities/receiving_entities.dart';
 import 'package:equatable/equatable.dart';
 
 class SystemMovementEntity extends Equatable {
@@ -36,11 +36,11 @@ class SystemMovementEntity extends Equatable {
 
   @override
   List<Object?> get props => [
-        id,
-        palletId,
-        movementType,
-        itemName,
-        quantityChanged,
-        createdAt,
-      ];
+    id,
+    palletId,
+    movementType,
+    itemName,
+    quantityChanged,
+    createdAt,
+  ];
 }
