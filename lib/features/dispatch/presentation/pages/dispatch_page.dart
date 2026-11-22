@@ -495,6 +495,7 @@ class _DispatchPageState extends State<DispatchPage> {
         (maxItems - 1).clamp(0, 5).toDouble() * 42.0;
   }
 
+  // ignore: unused_element
   Widget _metaPill(IconData icon, String text) => Flexible(
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
