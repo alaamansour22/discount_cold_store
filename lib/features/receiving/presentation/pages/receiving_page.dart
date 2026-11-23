@@ -1344,7 +1344,7 @@ class _WarehouseRackMatrixView extends StatelessWidget {
     );
   }
 
-  void _showManageOccupiedPalletSheet({
+void _showManageOccupiedPalletSheet({
     required BuildContext context,
     required ReceivingRackSlotEntity slot,
   }) {
@@ -1498,6 +1498,45 @@ class _WarehouseRackMatrixView extends StatelessWidget {
                                       );
                                     },
                                   ),
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      Navigator.of(ctx).pop();
+                                      _showDeleteItemConfirmDialog(
+                                        context: context,
+                                        slot: slot,
+                                        item: item,
+                                        isOnlyItemOnPallet:
+                                            pallet.items.length == 1,
+                                      );
+                                    },
+                                    icon: const Icon(
+                                      LucideIcons.trash2,
+                                      size: 16,
+                                      color: AppColors.dangerRed,
+                                    ),
+                                    label: const Text(
+                                      'حذف الصنف',
+                                      style: TextStyle(
+                                        color: AppColors.dangerRed,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      side: BorderSide(
+                                        color: AppColors.dangerRed.withValues(
+                                          alpha: 0.45,
+                                        ),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 12,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ],
@@ -1507,12 +1546,106 @@ class _WarehouseRackMatrixView extends StatelessWidget {
                     },
                   ),
                 ),
+                const Divider(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      _showDeletePalletConfirmDialog(
+                        context: context,
+                        slot: slot,
+                        pallet: pallet,
+                      );
+                    },
+                    icon: const Icon(
+                      LucideIcons.trash2,
+                      color: AppColors.dangerRed,
+                      size: 18,
+                    ),
+                    label: const Text(
+                      'حذف البالتة بالكامل (تسكين بالخطأ)',
+                      style: TextStyle(
+                        color: AppColors.dangerRed,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                        color: AppColors.dangerRed.withValues(alpha: 0.45),
+                      ),
+                      backgroundColor: AppColors.dangerRed.withValues(
+                        alpha: 0.05,
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _showDeletePalletConfirmDialog({
+    required BuildContext context,
+    required ReceivingRackSlotEntity slot,
+    required ReceivingPalletEntity pallet,
+  }) async {
+    final cubit = context.read<ReceivingCubit>();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (_) => _DeleteConfirmationDialog(
+        title: 'تأكيد حذف البالتة بالكامل',
+        warningMessage:
+            'سيتم حذف البالتة (${pallet.palletReference}) بجميع أصنافها (${pallet.items.length} صنف) وإخلاء الموقع [${slot.slotCode}] فوراً.\nلا يمكن حذف البالتات المرتبطة بمستند صرف أو إعدام رسمي.',
+        defaultReason: 'تسكين بالخطأ',
+        confirmLabel: 'حذف البالتة',
+      ),
+    );
+    if (reason != null && reason.trim().isNotEmpty) {
+      await cubit.deleteMistakenPallet(
+        palletId: pallet.id,
+        slotCode: slot.slotCode,
+        reason: reason,
+      );
+    }
+  }
+
+  Future<void> _showDeleteItemConfirmDialog({
+    required BuildContext context,
+    required ReceivingRackSlotEntity slot,
+    required ReceivingPalletItemEntity item,
+    required bool isOnlyItemOnPallet,
+  }) async {
+    final cubit = context.read<ReceivingCubit>();
+    final extraNote = isOnlyItemOnPallet
+        ? '\nتنبيه: هذا هو الصنف الوحيد على البالتة، لذا سيتم أيضاً إخلاء الموقع [${slot.slotCode}].'
+        : '\nستبقى باقي أصناف البالتة في الموقع [${slot.slotCode}] كما هي.';
+
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (_) => _DeleteConfirmationDialog(
+        title: 'تأكيد حذف الصنف',
+        warningMessage:
+            'سيتم حذف الصنف (${item.itemName}) بكمية (${item.quantity} ${item.unit.arLabel}) من الموقع [${slot.slotCode}].$extraNote',
+        defaultReason: 'إدخال صنف بالخطأ',
+        confirmLabel: 'حذف الصنف',
+      ),
+    );
+    if (reason != null && reason.trim().isNotEmpty) {
+      await cubit.deleteMistakenPalletItem(
+        palletItemId: item.palletItemId,
+        itemName: item.itemName,
+        slotCode: slot.slotCode,
+        reason: reason,
+      );
+    }
   }
 
   void _showItemQuantityActionDialog({
@@ -2211,6 +2344,126 @@ class _PalletBinCard extends StatelessWidget {
             const Spacer(),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DeleteConfirmationDialog extends StatefulWidget {
+  final String title;
+  final String warningMessage;
+  final String defaultReason;
+  final String confirmLabel;
+
+  const _DeleteConfirmationDialog({
+    required this.title,
+    required this.warningMessage,
+    required this.defaultReason,
+    required this.confirmLabel,
+  });
+
+  @override
+  State<_DeleteConfirmationDialog> createState() =>
+      _DeleteConfirmationDialogState();
+}
+
+class _DeleteConfirmationDialogState extends State<_DeleteConfirmationDialog> {
+  late final TextEditingController _reasonCtrl;
+  String? _validationError;
+
+  @override
+  void initState() {
+    super.initState();
+    _reasonCtrl = TextEditingController(text: widget.defaultReason);
+  }
+
+  @override
+  void dispose() {
+    _reasonCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: [
+            const Icon(LucideIcons.triangleAlert, color: AppColors.dangerRed),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: AppColors.dangerRed.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.dangerRed.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Text(
+                widget.warningMessage,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  height: 1.5,
+                  color: AppColors.primaryNavy,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _reasonCtrl,
+              maxLines: 2,
+              onChanged: (_) {
+                if (_validationError != null) {
+                  setState(() => _validationError = null);
+                }
+              },
+              decoration: InputDecoration(
+                labelText: 'سبب الحذف (يُحفظ في سجل التدقيق)',
+                errorText: _validationError,
+                prefixIcon: const Icon(LucideIcons.fileText, size: 18),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('إلغاء'),
+          ),
+          AppActionButton(
+            label: widget.confirmLabel,
+            icon: LucideIcons.trash2,
+            variant: AppButtonVariant.danger,
+            onPressed: () {
+              final text = _reasonCtrl.text.trim();
+              if (text.isEmpty) {
+                setState(() => _validationError = 'يرجى كتابة سبب الحذف');
+                return;
+              }
+              Navigator.of(context).pop(text);
+            },
+          ),
+        ],
       ),
     );
   }

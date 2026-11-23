@@ -21,4 +21,15 @@ abstract class IReceivingRepository {
     required double targetQuantity,
     String notes = '',
   });
+
+  Future<void> deleteMistakenPallet({
+    required String palletId,
+    required String reason,
+  });
+
+  /// ترجع true إذا تم إخلاء موقع الراك أيضاً (عندما يكون المحذوف آخر صنف على البالتة)
+  Future<bool> deleteMistakenPalletItem({
+    required String palletItemId,
+    required String reason,
+  });
 }

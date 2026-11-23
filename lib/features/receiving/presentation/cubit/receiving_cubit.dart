@@ -17,11 +17,14 @@ class ReceivingCubit extends Cubit<ReceivingState> {
     : super(const ReceivingState()) {
     loadData();
     _realtimeSub = _warehouseUseCases.watchUpdates().listen((_) {
-      loadData(silent: true);
+      if (!isClosed) {
+        loadData(silent: true);
+      }
     });
   }
 
   Future<void> loadData({bool silent = false}) async {
+    if (isClosed) return;
     if (!silent) {
       emit(
         state.copyWith(isLoading: true, clearFailure: true, clearSuccess: true),
@@ -30,6 +33,7 @@ class ReceivingCubit extends Cubit<ReceivingState> {
     try {
       final slots = await _warehouseUseCases.getRackSlots();
       final movements = await _useCases.getMovementsLog();
+      if (isClosed) return;
       emit(
         state.copyWith(
           isLoading: false,
@@ -39,6 +43,7 @@ class ReceivingCubit extends Cubit<ReceivingState> {
         ),
       );
     } catch (e) {
+      if (isClosed) return;
       emit(state.copyWith(isLoading: false, failure: ErrorHandler.handle(e)));
     }
   }
@@ -75,6 +80,7 @@ class ReceivingCubit extends Cubit<ReceivingState> {
     required String slotId,
     required List<PalletItemDraft> items,
   }) async {
+    if (isClosed) return;
     emit(
       state.copyWith(
         isSubmitting: true,
@@ -88,7 +94,9 @@ class ReceivingCubit extends Cubit<ReceivingState> {
         slotId: slotId,
         items: items,
       );
+      if (isClosed) return;
       await loadData(silent: true);
+      if (isClosed) return;
       emit(
         state.copyWith(
           isSubmitting: false,
@@ -98,10 +106,12 @@ class ReceivingCubit extends Cubit<ReceivingState> {
         ),
       );
     } catch (e) {
+      if (isClosed) return;
       final failure = ErrorHandler.handle(e);
       if (failure.type == FailureType.concurrencyConflict) {
         await loadData(silent: true);
       }
+      if (isClosed) return;
       emit(state.copyWith(isSubmitting: false, failure: failure));
     }
   }
@@ -111,6 +121,7 @@ class ReceivingCubit extends Cubit<ReceivingState> {
     required ReceivingSource sourceEntity,
     required List<PalletItemDraft> items,
   }) async {
+    if (isClosed) return;
     emit(
       state.copyWith(
         isSubmitting: true,
@@ -124,7 +135,9 @@ class ReceivingCubit extends Cubit<ReceivingState> {
         sourceEntity: sourceEntity,
         items: items,
       );
+      if (isClosed) return;
       await loadData(silent: true);
+      if (isClosed) return;
       emit(
         state.copyWith(
           isSubmitting: false,
@@ -132,6 +145,7 @@ class ReceivingCubit extends Cubit<ReceivingState> {
         ),
       );
     } catch (e) {
+      if (isClosed) return;
       emit(
         state.copyWith(isSubmitting: false, failure: ErrorHandler.handle(e)),
       );
@@ -144,6 +158,7 @@ class ReceivingCubit extends Cubit<ReceivingState> {
     required double targetQuantity,
     String notes = '',
   }) async {
+    if (isClosed) return;
     emit(
       state.copyWith(
         isSubmitting: true,
@@ -158,7 +173,9 @@ class ReceivingCubit extends Cubit<ReceivingState> {
         targetQuantity: targetQuantity,
         notes: notes,
       );
+      if (isClosed) return;
       await loadData(silent: true);
+      if (isClosed) return;
       emit(
         state.copyWith(
           isSubmitting: false,
@@ -166,11 +183,92 @@ class ReceivingCubit extends Cubit<ReceivingState> {
         ),
       );
     } catch (e) {
+      if (isClosed) return;
       final failure = ErrorHandler.handle(e);
       if (failure.type == FailureType.concurrencyConflict ||
           failure.type == FailureType.insufficientQuantity) {
         await loadData(silent: true);
       }
+      if (isClosed) return;
+      emit(state.copyWith(isSubmitting: false, failure: failure));
+    }
+  }
+
+  Future<void> deleteMistakenPallet({
+    required String palletId,
+    required String slotCode,
+    required String reason,
+  }) async {
+    if (isClosed) return;
+    emit(
+      state.copyWith(
+        isSubmitting: true,
+        clearFailure: true,
+        clearSuccess: true,
+      ),
+    );
+    try {
+      await _useCases.deleteMistakenPallet(
+        palletId: palletId,
+        reason: reason,
+      );
+      if (isClosed) return;
+      await loadData(silent: true);
+      if (isClosed) return;
+      emit(
+        state.copyWith(
+          isSubmitting: false,
+          successMessage: 'تم حذف البالتة وإخلاء الموقع [$slotCode] بنجاح',
+        ),
+      );
+    } catch (e) {
+      if (isClosed) return;
+      final failure = ErrorHandler.handle(e);
+      if (failure.type == FailureType.concurrencyConflict) {
+        await loadData(silent: true);
+      }
+      if (isClosed) return;
+      emit(state.copyWith(isSubmitting: false, failure: failure));
+    }
+  }
+
+  Future<void> deleteMistakenPalletItem({
+    required String palletItemId,
+    required String itemName,
+    required String slotCode,
+    required String reason,
+  }) async {
+    if (isClosed) return;
+    emit(
+      state.copyWith(
+        isSubmitting: true,
+        clearFailure: true,
+        clearSuccess: true,
+      ),
+    );
+    try {
+      final slotFreed = await _useCases.deleteMistakenPalletItem(
+        palletItemId: palletItemId,
+        reason: reason,
+      );
+      if (isClosed) return;
+      await loadData(silent: true);
+      if (isClosed) return;
+      emit(
+        state.copyWith(
+          isSubmitting: false,
+          successMessage: slotFreed
+              ? 'تم حذف الصنف ($itemName) وإخلاء الموقع [$slotCode] بنجاح'
+              : 'تم حذف الصنف ($itemName) من البالتة بنجاح',
+        ),
+      );
+    } catch (e) {
+      if (isClosed) return;
+      final failure = ErrorHandler.handle(e);
+      if (failure.type == FailureType.concurrencyConflict) {
+        await loadData(silent: true);
+      }
+      if (isClosed) return;
       emit(state.copyWith(isSubmitting: false, failure: failure));
     }
   }

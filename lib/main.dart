@@ -12,6 +12,7 @@ import 'features/auth/presentation/pages/login_page.dart';
 import 'features/condemnations/presentation/pages/condemnations_page.dart';
 import 'features/dashboard/presentation/pages/dashboard_page.dart';
 import 'features/dispatch/presentation/pages/dispatch_page.dart';
+import 'features/movements_log/presentation/pages/deleted_records_page.dart';
 import 'features/movements_log/presentation/pages/movements_log_page.dart';
 import 'features/rack_transfer/presentation/pages/rack_transfer_page.dart';
 import 'features/receiving/presentation/pages/receiving_page.dart';
@@ -49,6 +50,7 @@ class DiscountColdStoreApp extends StatelessWidget {
         BlocProvider(create: (_) => sl.createCondemnationsCubit()),
         BlocProvider(create: (_) => sl.createSettingsCubit()),
         BlocProvider(create: (_) => sl.createMovementsLogCubit()),
+        BlocProvider(create: (_) => sl.createDeletedRecordsCubit()),
       ],
       child: MaterialApp(
         title: 'ثلاجة المخفض',
@@ -157,6 +159,12 @@ class _ColdStorageMainOrchestratorPageState
           section: 'الصرف والتقارير',
           icon: LucideIcons.chartNoAxesCombined,
           page: const ReportsCenterPage(),
+        ),
+        AppShellTabItem(
+          label: 'سجل المحذوفات',
+          section: 'النظام',
+          icon: LucideIcons.trash2,
+          page: const DeletedRecordsPage(),
         ),
         AppShellTabItem(
           label: 'الإعدادات',

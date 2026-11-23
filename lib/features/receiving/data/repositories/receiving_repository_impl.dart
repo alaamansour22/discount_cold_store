@@ -71,4 +71,34 @@ class ReceivingRepositoryImpl implements IReceivingRepository {
       throw ErrorHandler.handle(e);
     }
   }
+
+  @override
+  Future<void> deleteMistakenPallet({
+    required String palletId,
+    required String reason,
+  }) async {
+    try {
+      await _remoteDataSource.rpcDeleteMistakenPallet(
+        palletId: palletId,
+        reason: reason,
+      );
+    } catch (e) {
+      throw ErrorHandler.handle(e);
+    }
+  }
+
+  @override
+  Future<bool> deleteMistakenPalletItem({
+    required String palletItemId,
+    required String reason,
+  }) async {
+    try {
+      return await _remoteDataSource.rpcDeleteMistakenPalletItem(
+        palletItemId: palletItemId,
+        reason: reason,
+      );
+    } catch (e) {
+      throw ErrorHandler.handle(e);
+    }
+  }
 }

@@ -70,7 +70,7 @@ class ErrorHandler {
     }
     if (raw.contains('ITEM_NOT_AVAILABLE')) {
       return const AppFailure(
-        message: 'هذا الصنف لم يعد متاحاً بالرصيد (تم صرفه أو إعدامه بواسطة مستخدم آخر).',
+        message: 'هذا الصنف لم يعد متاحاً بالرصيد (تم صرفه أو إعدامه أو حذفه بواسطة مستخدم آخر).',
         code: 'ITEM_NOT_AVAILABLE',
         type: FailureType.concurrencyConflict,
       );
@@ -102,11 +102,73 @@ class ErrorHandler {
     }
 
     if (msg.contains('ITEM_NOT_AVAILABLE') ||
-        msg.contains('PALLET_NOT_ACTIVE')) {
+        msg.contains('PALLET_NOT_ACTIVE') ||
+        msg.contains('PALLET_NOT_FOUND')) {
       return const AppFailure(
-        message: 'الصنف أو البالتة لم تعد متاحة بالرصيد (تم صرفها أو إعدامها للتو بواسطة زميل آخر).',
+        message: 'الصنف أو البالتة لم تعد متاحة بالرصيد (تم صرفها أو إعدامها أو حذفها للتو).',
         code: 'ITEM_NOT_AVAILABLE',
         type: FailureType.concurrencyConflict,
+      );
+    }
+
+    if (msg.contains('ITEM_HAS_DISPATCH_HISTORY') ||
+        msg.contains('ITEM_HAS_OFFICIAL_MOVEMENTS')) {
+      return const AppFailure(
+        message:
+            'لا يمكن حذف هذا الصنف لوجود مستند صرف رسمي مرتبط به. استخدم عكس مستند الصرف أو تعديل الكمية.',
+        code: 'ITEM_HAS_DISPATCH_HISTORY',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('ITEM_HAS_CONDEMNATION_HISTORY')) {
+      return const AppFailure(
+        message: 'لا يمكن حذف هذا الصنف لوجود سجل إعدام معتمد مرتبط به.',
+        code: 'ITEM_HAS_CONDEMNATION_HISTORY',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('PALLET_HAS_DISPATCH_HISTORY') ||
+        msg.contains('PALLET_HAS_OFFICIAL_MOVEMENTS')) {
+      return const AppFailure(
+        message:
+            'لا يمكن حذف هذه البالتة لوجود مستند صرف رسمي مرتبط بها. استخدم عكس مستند الصرف أو التعديل.',
+        code: 'PALLET_HAS_DISPATCH_HISTORY',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('PALLET_HAS_CONDEMNATION_HISTORY')) {
+      return const AppFailure(
+        message: 'لا يمكن حذف هذه البالتة لوجود سجل إعدام معتمد مرتبط بها.',
+        code: 'PALLET_HAS_CONDEMNATION_HISTORY',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('DELETE_FORBIDDEN')) {
+      return const AppFailure(
+        message:
+            'غير مصرح لك بحذف سجل قام مستخدم آخر بإدخاله (متاح للمدير أو لمنفذ العملية).',
+        code: 'DELETE_FORBIDDEN',
+        type: FailureType.unauthorized,
+      );
+    }
+
+    if (msg.contains('REASON_REQUIRED')) {
+      return const AppFailure(
+        message: 'يرجى كتابة سبب الحذف قبل التأكيد.',
+        code: 'REASON_REQUIRED',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('REASON_TOO_LONG')) {
+      return const AppFailure(
+        message: 'سبب الحذف أطول من الحد المسموح (500 حرف).',
+        code: 'REASON_TOO_LONG',
+        type: FailureType.validationError,
       );
     }
 

@@ -24,7 +24,7 @@ class AppShellTabItem {
 }
 
 /// غلاف التنقل الاحترافي (Zero Overflow):
-/// 1. شريط سفلي أنيق يعرض أهم 3 موديولات فقط + زر "كل الأقسام" الذي يفتح Bottom Sheet فخم
+/// 1. شريط سفلي أنيق يعرض أهم 3 موديولات فقط + زر "كل الأقسام" الذي يفتح Bottom Sheet قابل للتمرير
 /// 2. قائمة جانبية احترافية قابلة للطي على الكمبيوتر + Drawer للموبايل
 /// 3. حماية كاملة لزر الرجوع PopScope وتحميل كسول للشاشات وعزل الكيبورد
 class AppNavigationShell extends StatefulWidget {
@@ -70,6 +70,7 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
   }
 
   void _selectTab(int newIndex) {
+    if (newIndex < 0 || newIndex >= widget.tabs.length) return;
     if (newIndex == widget.currentIndex) return;
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
@@ -133,7 +134,7 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
             ],
           ),
           content: const Text(
-            'هل أنت متأكد أنك تريد إغلاق تطبيق ثلاجة مخفض (رمز C)؟',
+            'هل أنت متأكد أنك تريد إغلاق تطبيق ثلاجة المخفض (رمز C)؟',
             style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
           ),
           actions: [
@@ -155,169 +156,179 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
     );
   }
 
-  /// نافذة سفلية احترافية لعرض كافة أقسام النظام على الموبايل
+  /// نافذة سفلية احترافية قابلة للتمرير لعرض كافة أقسام النظام (12 قسماً) بدون Overflow
   void _showModulesBottomSheet(BuildContext context) {
-    showModalBottomSheet(
+    showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
-        child: Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.85,
           ),
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 44,
-                    height: 4.5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 4.5,
                       decoration: BoxDecoration(
-                        color: AppColors.primaryNavy.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        LucideIcons.layoutGrid,
-                        color: AppColors.primaryNavy,
-                        size: 22,
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'قائمة موديولات ثلاجة المخفض (C)',
-                            style: TextStyle(
-                              fontSize: 16.5,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.primaryNavy,
-                            ),
-                          ),
-                          Text(
-                            'اختر القسم المطلوب للانتقال السريع',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      icon: const Icon(LucideIcons.x, size: 20),
-                    ),
-                  ],
-                ),
-                const Divider(height: 24),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    mainAxisSpacing: 10,
-                    crossAxisSpacing: 10,
-                    mainAxisExtent: 82,
                   ),
-                  itemCount: widget.tabs.length,
-                  itemBuilder: (_, idx) {
-                    final item = widget.tabs[idx];
-                    final isSelected = idx == widget.currentIndex;
-
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () {
-                        Navigator.of(ctx).pop();
-                        _selectTab(idx);
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.zoneC2Blue.withValues(alpha: 0.1)
-                              : AppColors.scaffoldBackground,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: isSelected
-                                ? AppColors.zoneC2Blue
-                                : AppColors.borderLight,
-                            width: isSelected ? 1.8 : 1,
-                          ),
+                          color: AppColors.primaryNavy.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Row(
+                        child: const Icon(
+                          LucideIcons.layoutGrid,
+                          color: AppColors.primaryNavy,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Badge(
-                              isLabelVisible: item.badgeCount > 0,
-                              backgroundColor: AppColors.dangerRed,
-                              label: Text(
-                                item.badgeCount.toString(),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                ),
-                              ),
-                              child: CircleAvatar(
-                                radius: 20,
-                                backgroundColor: isSelected
-                                    ? AppColors.zoneC2Blue
-                                    : Colors.white,
-                                child: Icon(
-                                  item.icon,
-                                  size: 19,
-                                  color: isSelected
-                                      ? Colors.white
-                                      : AppColors.primaryNavy,
-                                ),
+                            Text(
+                              'قائمة موديولات ثلاجة المخفض (C)',
+                              style: TextStyle(
+                                fontSize: 16.5,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primaryNavy,
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                item.label,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: isSelected
-                                      ? FontWeight.w800
-                                      : FontWeight.w700,
-                                  color: isSelected
-                                      ? AppColors.zoneC2Blue
-                                      : AppColors.primaryNavy,
-                                ),
+                            Text(
+                              'اختر القسم المطلوب للانتقال السريع',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
                               ),
                             ),
                           ],
                         ),
                       ),
-                    );
-                  },
-                ),
-              ],
+                      IconButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        icon: const Icon(LucideIcons.x, size: 20),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 22),
+                  Flexible(
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.only(bottom: 6),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            mainAxisSpacing: 10,
+                            crossAxisSpacing: 10,
+                            mainAxisExtent: 76,
+                          ),
+                      itemCount: widget.tabs.length,
+                      itemBuilder: (_, idx) {
+                        final item = widget.tabs[idx];
+                        final isSelected = idx == widget.currentIndex;
+
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () {
+                            Navigator.of(ctx).pop();
+                            _selectTab(idx);
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.zoneC2Blue.withValues(alpha: 0.1)
+                                  : AppColors.scaffoldBackground,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.zoneC2Blue
+                                    : AppColors.borderLight,
+                                width: isSelected ? 1.8 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Badge(
+                                  isLabelVisible: item.badgeCount > 0,
+                                  backgroundColor: AppColors.dangerRed,
+                                  label: Text(
+                                    item.badgeCount.toString(),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                  child: CircleAvatar(
+                                    radius: 19,
+                                    backgroundColor: isSelected
+                                        ? AppColors.zoneC2Blue
+                                        : Colors.white,
+                                    child: Icon(
+                                      item.icon,
+                                      size: 18,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : AppColors.primaryNavy,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    item.label,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      height: 1.2,
+                                      fontWeight: isSelected
+                                          ? FontWeight.w800
+                                          : FontWeight.w700,
+                                      color: isSelected
+                                          ? AppColors.zoneC2Blue
+                                          : AppColors.primaryNavy,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -327,169 +338,173 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.sizeOf(context).width >= 900;
-    final currentTabTitle = widget.tabs[widget.currentIndex].label;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktop = constraints.maxWidth >= 900;
+        final currentTabTitle = widget.tabs[widget.currentIndex].label;
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) => _handleBackAttempt(didPop),
-      child: Directionality(
-        textDirection: TextDirection.rtl,
-        child: Scaffold(
-          key: _scaffoldKey,
-          resizeToAvoidBottomInset: false,
-          backgroundColor: AppColors.scaffoldBackground,
-          drawer: isDesktop
-              ? null
-              : Drawer(
-                  width: 288,
-                  backgroundColor: AppColors.primaryNavy,
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.horizontal(
-                      left: Radius.circular(24),
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) => _handleBackAttempt(didPop),
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Scaffold(
+              key: _scaffoldKey,
+              resizeToAvoidBottomInset: false,
+              backgroundColor: AppColors.scaffoldBackground,
+              drawer: isDesktop
+                  ? null
+                  : Drawer(
+                      width: 288,
+                      backgroundColor: AppColors.primaryNavy,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.horizontal(
+                          left: Radius.circular(24),
+                        ),
+                      ),
+                      child: _ProfessionalSidebarContent(
+                        tabs: widget.tabs,
+                        currentIndex: widget.currentIndex,
+                        userRoleBadge: widget.userRoleBadge,
+                        isDesktop: false,
+                        isCollapsed: false,
+                        onSelect: (idx) {
+                          Navigator.of(context).pop();
+                          _selectTab(idx);
+                        },
+                      ),
                     ),
-                  ),
-                  child: _ProfessionalSidebarContent(
-                    tabs: widget.tabs,
-                    currentIndex: widget.currentIndex,
-                    userRoleBadge: widget.userRoleBadge,
-                    isDesktop: false,
-                    isCollapsed: false,
-                    onSelect: (idx) {
-                      Navigator.of(context).pop();
-                      _selectTab(idx);
-                    },
-                  ),
+              appBar: AppBar(
+                backgroundColor: AppColors.primaryNavy,
+                elevation: 2,
+                leading: !isDesktop
+                    ? IconButton(
+                        tooltip: 'القائمة الجانبية',
+                        icon: const Icon(LucideIcons.menu, color: Colors.white),
+                        onPressed: () =>
+                            _scaffoldKey.currentState?.openDrawer(),
+                      )
+                    : Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Image.asset(
+                          AppAssets.logoSq,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            LucideIcons.snowflake,
+                            color: AppColors.accentCyan,
+                          ),
+                        ),
+                      ),
+                title: Row(
+                  children: [
+                    if (!isDesktop) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.asset(
+                          AppAssets.logoSq,
+                          height: 28,
+                          width: 28,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            LucideIcons.snowflake,
+                            color: AppColors.accentCyan,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      child: Text(
+                        '${widget.title} — $currentTabTitle',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15.5,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-          appBar: AppBar(
-            backgroundColor: AppColors.primaryNavy,
-            elevation: 2,
-            leading: !isDesktop
-                ? IconButton(
-                    tooltip: 'القائمة الجانبية',
-                    icon: const Icon(LucideIcons.menu, color: Colors.white),
-                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                  )
-                : Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Image.asset(
-                      AppAssets.logoSq,
-                      errorBuilder: (_, __, ___) => const Icon(
-                        LucideIcons.snowflake,
-                        color: AppColors.accentCyan,
+                actions: [
+                  if (widget.onNotificationsTap != null)
+                    IconButton(
+                      tooltip: 'الإشعارات والتنبيهات',
+                      onPressed: widget.onNotificationsTap,
+                      icon: Badge(
+                        isLabelVisible: widget.unreadNotificationsCount > 0,
+                        backgroundColor: AppColors.dangerRed,
+                        label: Text(
+                          widget.unreadNotificationsCount.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                          ),
+                        ),
+                        child: const Icon(LucideIcons.bell),
                       ),
                     ),
-                  ),
-            title: Row(
-              children: [
-                if (!isDesktop) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: Image.asset(
-                      AppAssets.logoSq,
-                      height: 28,
-                      width: 28,
-                      errorBuilder: (_, __, ___) => const Icon(
-                        LucideIcons.snowflake,
-                        color: AppColors.accentCyan,
-                        size: 22,
-                      ),
+                  if (widget.onRefreshTap != null)
+                    IconButton(
+                      tooltip: 'تحديث البيانات',
+                      onPressed: widget.onRefreshTap,
+                      icon: const Icon(LucideIcons.refreshCw),
                     ),
-                  ),
-                  const SizedBox(width: 10),
+                  if (widget.actions != null) ...widget.actions!,
+                  const SizedBox(width: 6),
                 ],
-                Expanded(
-                  child: Text(
-                    '${widget.title} — $currentTabTitle',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15.5,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              if (widget.onNotificationsTap != null)
-                IconButton(
-                  tooltip: 'الإشعارات والتنبيهات',
-                  onPressed: widget.onNotificationsTap,
-                  icon: Badge(
-                    isLabelVisible: widget.unreadNotificationsCount > 0,
-                    backgroundColor: AppColors.dangerRed,
-                    label: Text(
-                      widget.unreadNotificationsCount.toString(),
-                      style: const TextStyle(color: Colors.white, fontSize: 10),
-                    ),
-                    child: const Icon(LucideIcons.bell),
-                  ),
-                ),
-              if (widget.onRefreshTap != null)
-                IconButton(
-                  tooltip: 'تحديث البيانات',
-                  onPressed: widget.onRefreshTap,
-                  icon: const Icon(LucideIcons.refreshCw),
-                ),
-              if (widget.actions != null) ...widget.actions!,
-              const SizedBox(width: 6),
-            ],
-          ),
-          body: Row(
-            children: [
-              if (isDesktop)
-                RepaintBoundary(
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    width: _isSidebarCollapsed ? 80 : 272,
-                    child: _ProfessionalSidebarContent(
-                      tabs: widget.tabs,
-                      currentIndex: widget.currentIndex,
-                      userRoleBadge: widget.userRoleBadge,
-                      isDesktop: true,
-                      isCollapsed: _isSidebarCollapsed,
-                      onToggleCollapse: () => setState(
-                        () => _isSidebarCollapsed = !_isSidebarCollapsed,
-                      ),
-                      onSelect: _selectTab,
-                    ),
-                  ),
-                ),
-              Expanded(
-                child: RepaintBoundary(
-                  child: MediaQuery.removeViewInsets(
-                    context: context,
-                    removeBottom: true,
-                    child: IndexedStack(
-                      index: widget.currentIndex,
-                      children: List.generate(widget.tabs.length, (i) {
-                        final isVisited =
-                            i == widget.currentIndex ||
-                            _visitedTabIndices.contains(i);
-                        return isVisited
-                            ? widget.tabs[i].page
-                            : const SizedBox.shrink();
-                      }),
-                    ),
-                  ),
-                ),
               ),
-            ],
-          ),
-          bottomNavigationBar: isDesktop
-              ? null
-              : RepaintBoundary(
-                  child: _CompactPrimaryBottomBar(
-                    tabs: widget.tabs,
-                    currentIndex: widget.currentIndex,
-                    onSelect: _selectTab,
-                    onOpenMoreSheet: () => _showModulesBottomSheet(context),
+              body: Row(
+                children: [
+                  if (isDesktop)
+                    RepaintBoundary(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        width: _isSidebarCollapsed ? 80 : 272,
+                        child: _ProfessionalSidebarContent(
+                          tabs: widget.tabs,
+                          currentIndex: widget.currentIndex,
+                          userRoleBadge: widget.userRoleBadge,
+                          isDesktop: true,
+                          isCollapsed: _isSidebarCollapsed,
+                          onToggleCollapse: () => setState(
+                            () => _isSidebarCollapsed = !_isSidebarCollapsed,
+                          ),
+                          onSelect: _selectTab,
+                        ),
+                      ),
+                    ),
+                  Expanded(
+                    child: RepaintBoundary(
+                      child: IndexedStack(
+                        index: widget.currentIndex,
+                        children: List.generate(widget.tabs.length, (i) {
+                          final isVisited =
+                              i == widget.currentIndex ||
+                              _visitedTabIndices.contains(i);
+                          return isVisited
+                              ? widget.tabs[i].page
+                              : const SizedBox.shrink();
+                        }),
+                      ),
+                    ),
                   ),
-                ),
-        ),
-      ),
+                ],
+              ),
+              bottomNavigationBar: isDesktop
+                  ? null
+                  : RepaintBoundary(
+                      child: _CompactPrimaryBottomBar(
+                        tabs: widget.tabs,
+                        currentIndex: widget.currentIndex,
+                        onSelect: _selectTab,
+                        onOpenMoreSheet: () => _showModulesBottomSheet(context),
+                      ),
+                    ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -669,7 +684,16 @@ class _ProfessionalSidebarContent extends StatelessWidget {
       return null;
     }
 
-    // تقسيم ذكي افتراضي للأقسام الـ 10 لتسهيل القراءة البصرية
+    // تقسيم ذكي افتراضي في حال عدم تمرير section صراحةً
+    if (tabs.length >= 11) {
+      return switch (idx) {
+        0 => 'نظرة عامة',
+        1 => 'العمليات والرقابة',
+        7 => 'الصرف والتقارير',
+        10 => 'النظام',
+        _ => null,
+      };
+    }
     if (tabs.length >= 9) {
       return switch (idx) {
         0 => 'نظرة عامة',
@@ -834,7 +858,7 @@ class _ProfessionalSidebarContent extends StatelessWidget {
                           ),
                         ),
                         child: const Text(
-                          ' مخازن المنتج التام',
+                          'مخازن المنتج التام',
                           style: TextStyle(
                             color: AppColors.accentCyan,
                             fontSize: 10.5,
@@ -1131,7 +1155,7 @@ class _ProfessionalSidebarContent extends StatelessWidget {
       ),
       child: isCollapsed
           ? Tooltip(
-              message: 'by Alaa mansour',
+              message: 'By Alaa Mansour',
               child: Container(
                 height: 36,
                 decoration: BoxDecoration(
@@ -1194,16 +1218,16 @@ class _ProfessionalSidebarContent extends StatelessWidget {
                               text: 'By ',
                               style: TextStyle(
                                 color: Colors.white54,
-                                fontSize: 9.5,
+                                fontSize: 10,
                                 fontWeight: FontWeight.w500,
                                 letterSpacing: 0.4,
                               ),
                             ),
                             TextSpan(
-                              text: 'Alaa mansour',
+                              text: 'Alaa Mansour',
                               style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 9.5,
+                                fontSize: 10.5,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: 0.5,
                               ),

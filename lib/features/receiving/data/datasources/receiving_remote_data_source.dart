@@ -24,6 +24,16 @@ abstract class IReceivingRemoteDataSource {
     required double targetQuantity,
     required String notes,
   });
+
+  Future<void> rpcDeleteMistakenPallet({
+    required String palletId,
+    required String reason,
+  });
+
+  Future<bool> rpcDeleteMistakenPalletItem({
+    required String palletItemId,
+    required String reason,
+  });
 }
 
 class ReceivingRemoteDataSourceImpl implements IReceivingRemoteDataSource {
@@ -95,5 +105,37 @@ class ReceivingRemoteDataSourceImpl implements IReceivingRemoteDataSource {
         'p_notes': notes,
       },
     );
+  }
+
+  @override
+  Future<void> rpcDeleteMistakenPallet({
+    required String palletId,
+    required String reason,
+  }) async {
+    await _supabase.rpc(
+      'rpc_delete_mistaken_pallet',
+      params: {
+        'p_pallet_id': palletId,
+        'p_reason': reason.trim(),
+      },
+    );
+  }
+
+  @override
+  Future<bool> rpcDeleteMistakenPalletItem({
+    required String palletItemId,
+    required String reason,
+  }) async {
+    final res = await _supabase.rpc(
+      'rpc_delete_mistaken_pallet_item',
+      params: {
+        'p_pallet_item_id': palletItemId,
+        'p_reason': reason.trim(),
+      },
+    );
+    if (res is Map) {
+      return res['slot_freed'] as bool? ?? false;
+    }
+    return false;
   }
 }

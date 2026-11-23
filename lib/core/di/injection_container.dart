@@ -22,6 +22,7 @@ import 'package:discount_cold_store/features/movements_log/data/datasources/move
 import 'package:discount_cold_store/features/movements_log/data/repositories/movements_log_repository_impl.dart';
 import 'package:discount_cold_store/features/movements_log/domain/repositories/i_movements_log_repository.dart';
 import 'package:discount_cold_store/features/movements_log/domain/usecases/movements_log_usecases.dart';
+import 'package:discount_cold_store/features/movements_log/presentation/cubit/deleted_records_cubit.dart';
 import 'package:discount_cold_store/features/movements_log/presentation/cubit/movements_log_cubit.dart';
 import 'package:discount_cold_store/features/rack_transfer/data/datasources/rack_transfer_remote_data_source.dart';
 import 'package:discount_cold_store/features/rack_transfer/data/repositories/rack_transfer_repository_impl.dart';
@@ -38,26 +39,23 @@ import 'package:discount_cold_store/features/reports/data/repositories/reports_r
 import 'package:discount_cold_store/features/reports/domain/repositories/i_reports_repository.dart';
 import 'package:discount_cold_store/features/reports/domain/usecases/reports_usecases.dart';
 import 'package:discount_cold_store/features/reports/presentation/cubit/reports_cubit.dart';
-import 'package:discount_cold_store/features/warehouse/data/datasources/warehouse_remote_data_source.dart';
-import 'package:discount_cold_store/features/warehouse/data/repositories/warehouse_repository_impl.dart';
-import 'package:discount_cold_store/features/warehouse/domain/repositories/i_warehouse_repository.dart';
-import 'package:discount_cold_store/features/warehouse/domain/usecases/warehouse_usecases.dart';
 import 'package:discount_cold_store/features/settings/data/datasources/settings_remote_data_source.dart';
 import 'package:discount_cold_store/features/settings/data/repositories/settings_repository_impl.dart';
 import 'package:discount_cold_store/features/settings/domain/repositories/i_settings_repository.dart';
 import 'package:discount_cold_store/features/settings/domain/usecases/settings_usecases.dart';
 import 'package:discount_cold_store/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:discount_cold_store/features/warehouse/data/datasources/warehouse_remote_data_source.dart';
+import 'package:discount_cold_store/features/warehouse/data/repositories/warehouse_repository_impl.dart';
+import 'package:discount_cold_store/features/warehouse/domain/repositories/i_warehouse_repository.dart';
+import 'package:discount_cold_store/features/warehouse/domain/usecases/warehouse_usecases.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// مدير التوصيلات المركزي (Dependency Injection Container)
-/// يربط كافة الموديولات الستة بنظام Clean Architecture + UseCases
 class InjectionContainer {
   InjectionContainer._();
   static final InjectionContainer instance = InjectionContainer._();
 
   late final SupabaseClient supabaseClient;
 
-  // Repositories
   late final IAuthRepository authRepository;
   late final IDashboardRepository dashboardRepository;
   late final IReceivingRepository receivingRepository;
@@ -76,7 +74,6 @@ class InjectionContainer {
 
     supabaseClient = Supabase.instance.client;
 
-    // 1. Repositories initialization
     authRepository = AuthRepositoryImpl(
       AuthRemoteDataSourceImpl(supabaseClient),
     );
@@ -111,7 +108,6 @@ class InjectionContainer {
     _isInitialized = true;
   }
 
-  // Cubit Factories with UseCases injection
   AuthCubit createAuthCubit() => AuthCubit(AuthUseCases(authRepository));
 
   DashboardCubit createDashboardCubit() =>
@@ -136,6 +132,9 @@ class InjectionContainer {
 
   MovementsLogCubit createMovementsLogCubit() =>
       MovementsLogCubit(MovementsLogUseCases(movementsLogRepository));
+
+  DeletedRecordsCubit createDeletedRecordsCubit() =>
+      DeletedRecordsCubit(MovementsLogUseCases(movementsLogRepository));
 
   ReportsCubit createReportsCubit() =>
       ReportsCubit(ReportsUseCases(reportsRepository));
