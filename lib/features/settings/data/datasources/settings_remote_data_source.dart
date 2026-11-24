@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../domain/entities/create_user_params.dart';
 import '../models/notification_settings_model.dart';
 
 abstract class ISettingsRemoteDataSource {
@@ -10,6 +11,13 @@ abstract class ISettingsRemoteDataSource {
     required int userCustomAlertDays,
     required bool notificationsEnabled,
     required bool receiveMondayAlert,
+  });
+
+  Future<void> rpcAdminCreateUser(CreateUserParams params);
+
+  Future<UserDeletionMode> rpcAdminDeleteUser({
+    required String userId,
+    required String reason,
   });
 }
 
@@ -57,7 +65,6 @@ class SettingsRemoteDataSourceImpl implements ISettingsRemoteDataSource {
   }) async {
     final userId = _supabase.auth.currentUser?.id;
 
-    // 1. تحديث الحد العام للثلاجة
     await _supabase
         .from('cold_storage_settings')
         .update({
@@ -67,7 +74,6 @@ class SettingsRemoteDataSourceImpl implements ISettingsRemoteDataSource {
         })
         .eq('id', 1);
 
-    // 2. استدعاء الدالة الذرية rpc_update_user_notification_settings لتحديث تنبيه المستخدم وإعادة تقييم الإشعارات فوراً
     await _supabase.rpc(
       'rpc_update_user_notification_settings',
       params: {
@@ -76,7 +82,6 @@ class SettingsRemoteDataSourceImpl implements ISettingsRemoteDataSource {
       },
     );
 
-    // 3. تحديث خيار تقرير يوم الإثنين الأسبوعي في جدول profiles
     if (userId != null) {
       await _supabase
           .from('profiles')
@@ -85,5 +90,38 @@ class SettingsRemoteDataSourceImpl implements ISettingsRemoteDataSource {
     }
 
     return fetchSettings();
+  }
+
+  @override
+  Future<void> rpcAdminCreateUser(CreateUserParams params) async {
+    await _supabase.rpc(
+      'rpc_admin_create_user',
+      params: {
+        'p_full_name': params.fullName.trim(),
+        'p_employee_code': params.employeeCode.trim(),
+        'p_email': params.email.trim().toLowerCase(),
+        'p_password': params.password,
+        'p_role': params.role.dbValue,
+        'p_grant_dispatch_reversal': params.grantDispatchReversal,
+      },
+    );
+  }
+
+  @override
+  Future<UserDeletionMode> rpcAdminDeleteUser({
+    required String userId,
+    required String reason,
+  }) async {
+    final res = await _supabase.rpc(
+      'rpc_admin_delete_user',
+      params: {
+        'p_target_user_id': userId.trim(),
+        'p_reason': reason.trim(),
+      },
+    );
+    if (res is Map) {
+      return UserDeletionMode.fromDb(res['deletion_mode']?.toString());
+    }
+    return UserDeletionMode.hardDeleted;
   }
 }

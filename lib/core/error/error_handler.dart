@@ -84,7 +84,111 @@ class ErrorHandler {
 
   static AppFailure _mapPostgrestException(PostgrestException e) {
     final msg = e.message;
+if (msg.contains('EMAIL_ALREADY_EXISTS')) {
+      return const AppFailure(
+        message: 'البريد الإلكتروني مسجل بالفعل لمستخدم آخر.',
+        code: 'EMAIL_ALREADY_EXISTS',
+        type: FailureType.validationError,
+      );
+    }
 
+    if (msg.contains('EMPLOYEE_CODE_EXISTS') ||
+        msg.contains('profiles_employee_code_key')) {
+      return const AppFailure(
+        message: 'كود الموظف مسجل بالفعل لمستخدم آخر.',
+        code: 'EMPLOYEE_CODE_EXISTS',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('ADMIN_ONLY')) {
+      return const AppFailure(
+        message: 'غير مصرح: إدارة حسابات المستخدمين متاحة لمدير النظام فقط.',
+        code: 'ADMIN_ONLY',
+        type: FailureType.unauthorized,
+      );
+    }
+if (msg.contains('CANNOT_DELETE_SELF')) {
+      return const AppFailure(
+        message: 'لا يمكنك حذف حسابك الشخصي أثناء تسجيل الدخول به.',
+        code: 'CANNOT_DELETE_SELF',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('CANNOT_DELETE_LAST_ADMIN')) {
+      return const AppFailure(
+        message: 'لا يمكن حذف آخر مدير نظام نشط في الثلاجة.',
+        code: 'CANNOT_DELETE_LAST_ADMIN',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('USER_NOT_FOUND')) {
+      return const AppFailure(
+        message: 'حساب الموظف غير موجود أو تم حذفه بالفعل.',
+        code: 'USER_NOT_FOUND',
+        type: FailureType.concurrencyConflict,
+      );
+    }
+
+    if (msg.contains('USER_ALREADY_DEACTIVATED')) {
+      return const AppFailure(
+        message:
+            'هذا الحساب موقوف بالفعل ومحفوظ للأرشفة لوجود حركات مخزنية مسجلة عليه.',
+        code: 'USER_ALREADY_DEACTIVATED',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('USER_HAS_HISTORY_RETRY')) {
+      return const AppFailure(
+        message:
+            'تم تسجيل حركة جديدة لهذا الموظف، يرجى المحاولة مرة أخرى لإيقاف الحساب بأمان.',
+        code: 'USER_HAS_HISTORY_RETRY',
+        type: FailureType.concurrencyConflict,
+      );
+    }
+
+    if (msg.contains('FULL_NAME_REQUIRED')) {
+      return const AppFailure(
+        message: 'يرجى إدخال اسم الموظف بشكل صحيح.',
+        code: 'FULL_NAME_REQUIRED',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('EMPLOYEE_CODE_REQUIRED')) {
+      return const AppFailure(
+        message: 'يرجى إدخال كود الموظف.',
+        code: 'EMPLOYEE_CODE_REQUIRED',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('INVALID_EMAIL')) {
+      return const AppFailure(
+        message: 'صيغة البريد الإلكتروني غير صحيحة.',
+        code: 'INVALID_EMAIL',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('WEAK_PASSWORD')) {
+      return const AppFailure(
+        message: 'كلمة المرور يجب أن تكون بين 6 و 72 حرفاً.',
+        code: 'WEAK_PASSWORD',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('INVALID_ROLE')) {
+      return const AppFailure(
+        message: 'الصلاحية المختارة غير معتمدة.',
+        code: 'INVALID_ROLE',
+        type: FailureType.validationError,
+      );
+    }
     if (msg.contains('SLOT_ALREADY_OCCUPIED') || e.code == '23505') {
       return const AppFailure(
         message: 'تنبيه تزامن: الموقع مشغول بالفعل ببالتة أخرى (تم تسكينه بواسطة مستخدم آخر).',

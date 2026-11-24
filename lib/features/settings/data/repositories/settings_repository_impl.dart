@@ -1,4 +1,5 @@
 import '../../../../core/error/error_handler.dart';
+import '../../domain/entities/create_user_params.dart';
 import '../../domain/entities/notification_settings_entity.dart';
 import '../../domain/repositories/i_settings_repository.dart';
 import '../datasources/settings_remote_data_source.dart';
@@ -30,6 +31,30 @@ class SettingsRepositoryImpl implements ISettingsRepository {
         userCustomAlertDays: userCustomAlertDays,
         notificationsEnabled: notificationsEnabled,
         receiveMondayAlert: receiveMondayAlert,
+      );
+    } catch (e) {
+      throw ErrorHandler.handle(e);
+    }
+  }
+
+  @override
+  Future<void> createUser(CreateUserParams params) async {
+    try {
+      await _remoteDataSource.rpcAdminCreateUser(params);
+    } catch (e) {
+      throw ErrorHandler.handle(e);
+    }
+  }
+
+  @override
+  Future<UserDeletionMode> deleteUser({
+    required String userId,
+    required String reason,
+  }) async {
+    try {
+      return await _remoteDataSource.rpcAdminDeleteUser(
+        userId: userId,
+        reason: reason,
       );
     } catch (e) {
       throw ErrorHandler.handle(e);
