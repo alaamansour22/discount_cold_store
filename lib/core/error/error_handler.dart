@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:async';
 
 import 'package:equatable/equatable.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -30,14 +30,51 @@ class AppFailure extends Equatable implements Exception {
 class ErrorHandler {
   const ErrorHandler._();
 
+  static const AppFailure _kNetworkFailure = AppFailure(
+    message: 'لا يوجد اتصال بالإنترنت، تأكد من الشبكة وحاول مرة أخرى.',
+    type: FailureType.networkError,
+  );
+
+  /// يلتقط أخطاء انقطاع الشبكة على Android و Windows (SocketException / ClientException)
+  /// وعلى المتصفح Web (Failed to fetch / XMLHttpRequest) بدون الاعتماد على dart:io
+  static bool _isNetworkError(String raw) {
+    final lower = raw.toLowerCase();
+    return lower.contains('socketexception') ||
+        lower.contains('failed host lookup') ||
+        lower.contains('network is unreachable') ||
+        lower.contains('no route to host') ||
+        lower.contains('connection refused') ||
+        lower.contains('connection reset') ||
+        lower.contains('connection closed') ||
+        lower.contains('connection timed out') ||
+        lower.contains('software caused connection abort') ||
+        lower.contains('handshakeexception') ||
+        lower.contains('failed to fetch') ||
+        lower.contains('xmlhttprequest') ||
+        lower.contains('clientexception');
+  }
+
   static AppFailure handle(Object error) {
-    if (error is AppFailure) return error;
+    if (error is AppFailure) {
+      return error;
+    }
 
     if (error is PostgrestException) {
       return _mapPostgrestException(error);
     }
 
+    if (error is TimeoutException) {
+      return const AppFailure(
+        message: 'انتهت مهلة الاتصال بالخادم، تأكد من سرعة الإنترنت وحاول مرة أخرى.',
+        code: 'TIMEOUT',
+        type: FailureType.networkError,
+      );
+    }
+
     if (error is AuthException) {
+      if (_isNetworkError(error.message) || _isNetworkError(error.toString())) {
+        return _kNetworkFailure;
+      }
       return AppFailure(
         message: 'جلسة الدخول انتهت أو غير مصرح لك بالعملية: ${error.message}',
         code: error.statusCode,
@@ -45,21 +82,20 @@ class ErrorHandler {
       );
     }
 
-    if (error is SocketException) {
-      return const AppFailure(
-        message: 'لا يوجد اتصال بالإنترنت، تأكد من الشبكة وحاول مرة أخرى.',
-        type: FailureType.networkError,
-      );
+    final raw = error.toString();
+    if (_isNetworkError(raw)) {
+      return _kNetworkFailure;
     }
 
-    final raw = error.toString();
     if (raw.contains('SLOT_ALREADY_OCCUPIED')) {
       return const AppFailure(
-        message: 'تنبيه تزامن: هذه البنة تم تسكينها للتو بواسطة مستخدم آخر! تم تحديث الراك.',
+        message:
+            'تنبيه تزامن: هذه البنة تم تسكينها للتو بواسطة مستخدم آخر! تم تحديث الراك.',
         code: 'SLOT_ALREADY_OCCUPIED',
         type: FailureType.concurrencyConflict,
       );
     }
+
     if (raw.contains('INSUFFICIENT_QUANTITY')) {
       return const AppFailure(
         message:
@@ -68,9 +104,11 @@ class ErrorHandler {
         type: FailureType.insufficientQuantity,
       );
     }
+
     if (raw.contains('ITEM_NOT_AVAILABLE')) {
       return const AppFailure(
-        message: 'هذا الصنف لم يعد متاحاً بالرصيد (تم صرفه أو إعدامه أو حذفه بواسطة مستخدم آخر).',
+        message:
+            'هذا الصنف لم يعد متاحاً بالرصيد (تم صرفه أو إعدامه أو حذفه بواسطة مستخدم آخر).',
         code: 'ITEM_NOT_AVAILABLE',
         type: FailureType.concurrencyConflict,
       );
@@ -84,7 +122,8 @@ class ErrorHandler {
 
   static AppFailure _mapPostgrestException(PostgrestException e) {
     final msg = e.message;
-if (msg.contains('EMAIL_ALREADY_EXISTS')) {
+
+    if (msg.contains('EMAIL_ALREADY_EXISTS')) {
       return const AppFailure(
         message: 'البريد الإلكتروني مسجل بالفعل لمستخدم آخر.',
         code: 'EMAIL_ALREADY_EXISTS',
@@ -108,7 +147,8 @@ if (msg.contains('EMAIL_ALREADY_EXISTS')) {
         type: FailureType.unauthorized,
       );
     }
-if (msg.contains('CANNOT_DELETE_SELF')) {
+
+    if (msg.contains('CANNOT_DELETE_SELF')) {
       return const AppFailure(
         message: 'لا يمكنك حذف حسابك الشخصي أثناء تسجيل الدخول به.',
         code: 'CANNOT_DELETE_SELF',
@@ -189,9 +229,11 @@ if (msg.contains('CANNOT_DELETE_SELF')) {
         type: FailureType.validationError,
       );
     }
+
     if (msg.contains('SLOT_ALREADY_OCCUPIED') || e.code == '23505') {
       return const AppFailure(
-        message: 'تنبيه تزامن: الموقع مشغول بالفعل ببالتة أخرى (تم تسكينه بواسطة مستخدم آخر).',
+        message:
+            'تنبيه تزامن: الموقع مشغول بالفعل ببالتة أخرى (تم تسكينه بواسطة مستخدم آخر).',
         code: 'SLOT_ALREADY_OCCUPIED',
         type: FailureType.concurrencyConflict,
       );
@@ -209,7 +251,8 @@ if (msg.contains('CANNOT_DELETE_SELF')) {
         msg.contains('PALLET_NOT_ACTIVE') ||
         msg.contains('PALLET_NOT_FOUND')) {
       return const AppFailure(
-        message: 'الصنف أو البالتة لم تعد متاحة بالرصيد (تم صرفها أو إعدامها أو حذفها للتو).',
+        message:
+            'الصنف أو البالتة لم تعد متاحة بالرصيد (تم صرفها أو إعدامها أو حذفها للتو).',
         code: 'ITEM_NOT_AVAILABLE',
         type: FailureType.concurrencyConflict,
       );
@@ -383,8 +426,4 @@ if (msg.contains('CANNOT_DELETE_SELF')) {
       type: FailureType.serverError,
     );
   }
-
-
-
-  
 }
