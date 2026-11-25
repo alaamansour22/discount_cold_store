@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
-
+import '../widgets/admin_users_section.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_action_button.dart';
 import '../../../../core/widgets/responsive_shimmer.dart';
@@ -69,12 +69,22 @@ class _SettingsPageState extends State<SettingsPage> {
           prev.failure != curr.failure ||
           prev.successMessage != curr.successMessage,
       listener: (context, state) {
+        final isOffstage =
+            context.findAncestorWidgetOfExactType<Offstage>()?.offstage ??
+            false;
+        if (isOffstage) {
+          return;
+        }
         if (state.failure != null) {
           _showFeedbackSnackBar(context, state.failure!.message, isError: true);
         } else if (state.successMessage != null) {
           _showFeedbackSnackBar(context, state.successMessage!);
         }
       },
+      buildWhen: (prev, curr) =>
+          prev.isLoading != curr.isLoading ||
+          prev.isSubmitting != curr.isSubmitting ||
+          prev.settings != curr.settings,
       builder: (context, state) {
         if (state.isLoading) {
           return const ResponsiveColdStorageShimmer(
@@ -84,36 +94,46 @@ class _SettingsPageState extends State<SettingsPage> {
         }
 
         return RepaintBoundary(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isDesktop = constraints.maxWidth >= 960;
-              final pad = isDesktop ? 24.0 : 14.0;
-              final effectiveSection = _activeMobileSection.clamp(
-                0,
-                isAdmin ? 2 : 1,
-              );
-
-              return Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1320),
-                  child: ListView(
-                    padding: EdgeInsets.fromLTRB(pad, 14, pad, 28),
-                    children: [
-                      _CompactProfileBanner(
-                        user: authUser,
-                        onSignOut: () => context.read<AuthCubit>().signOut(),
-                      ),
-                      const SizedBox(height: 14),
-                      if (!isDesktop)
-                        _buildMobileBody(state, isAdmin, effectiveSection)
-                      else
-                        _buildDesktopBody(state, isAdmin),
-                    ],
-                  ),
-                ),
-              );
+          child: RefreshIndicator(
+            onRefresh: () async {
+              final cubit = context.read<SettingsCubit>();
+              await Future.wait([
+                cubit.loadSettings(),
+                if (isAdmin) cubit.loadAdminUsers(),
+              ]);
             },
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isDesktop = constraints.maxWidth >= 960;
+                final pad = isDesktop ? 24.0 : 14.0;
+                final effectiveSection = _activeMobileSection.clamp(
+                  0,
+                  isAdmin ? 2 : 1,
+                );
+
+                return Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1320),
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(pad, 14, pad, 28),
+                      children: [
+                        _CompactProfileBanner(
+                          user: authUser,
+                          onSignOut: () => context.read<AuthCubit>().signOut(),
+                        ),
+                        const SizedBox(height: 14),
+                        if (!isDesktop)
+                          _buildMobileBody(state, isAdmin, effectiveSection)
+                        else
+                          _buildDesktopBody(state, isAdmin),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
         );
       },
@@ -139,7 +159,7 @@ class _SettingsPageState extends State<SettingsPage> {
             isSubmitting: state.isSubmitting,
           )
         else if (isAdmin && effectiveSection == 1)
-          const _AdminUsersSection()
+          const AdminUsersSection(isDesktop: false)
         else
           const _ChangePasswordCard(),
       ],
@@ -165,7 +185,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         if (isAdmin) ...[
           const SizedBox(width: 16),
-          const Expanded(flex: 5, child: _AdminUsersSection()),
+          const Expanded(flex: 5, child: AdminUsersSection(isDesktop: true)),
         ],
       ],
     );
@@ -247,7 +267,7 @@ class _SectionCardHeader extends StatelessWidget {
             ],
           ),
         ),
-        if (trailing != null) trailing!,
+        ?trailing,
       ],
     );
   }
@@ -891,326 +911,8 @@ class _ChangePasswordCardState extends State<_ChangePasswordCard> {
   }
 }
 
-// =============================================================================
-// 6. قسم إدارة المستخدمين والصلاحيات (إضافة + حذف/إيقاف + صلاحية عكس الصرف)
-// =============================================================================
-class _AdminUsersSection extends StatefulWidget {
-  const _AdminUsersSection();
 
-  @override
-  State<_AdminUsersSection> createState() => _AdminUsersSectionState();
-}
-
-class _AdminUsersSectionState extends State<_AdminUsersSection> {
-  final SupabaseClient _supabase = Supabase.instance.client;
-  final TextEditingController _searchController = TextEditingController();
-
-  List<_PermissionUser> _users = [];
-  final Set<String> _updatingIds = {};
-  bool _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadUsers();
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadUsers() async {
-    if (mounted) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    }
-    try {
-      final profiles = await _supabase
-          .from('profiles')
-          .select('id, full_name, employee_code, role, is_active')
-          .order('is_active', ascending: false)
-          .order('role')
-          .order('full_name');
-      final permissions = await _supabase
-          .from('profile_permissions')
-          .select('profile_id, permission_code')
-          .eq('permission_code', 'dispatch_reversal');
-
-      final grantedIds = <String>{
-        for (final row in permissions) (row['profile_id'] as String).toString(),
-      };
-      final users = profiles.map((row) {
-        final map = Map<String, dynamic>.from(row);
-        final rawName = (map['full_name'] as String?)?.trim();
-        return _PermissionUser(
-          id: map['id'].toString(),
-          name: (rawName != null && rawName.isNotEmpty)
-              ? rawName
-              : 'مستخدم بدون اسم',
-          employeeCode: (map['employee_code'] as String?)?.trim(),
-          role: (map['role'] as String?) ?? 'operator',
-          isActive: map['is_active'] as bool? ?? false,
-          canReverseDispatch: grantedIds.contains(map['id'].toString()),
-        );
-      }).toList();
-
-      if (!mounted) return;
-      setState(() {
-        _users = users;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = e.toString();
-      });
-    }
-  }
-
-  Future<void> _openAddUserDialog() async {
-    final settingsCubit = context.read<SettingsCubit>();
-    final created = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _AddUserDialog(
-        onSubmit: (params) => settingsCubit.createUser(params),
-      ),
-    );
-    if (created == true && mounted) {
-      await _loadUsers();
-    }
-  }
-
-  Future<void> _openDeleteUserDialog(_PermissionUser user) async {
-    final settingsCubit = context.read<SettingsCubit>();
-    final deleted = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _DeleteUserConfirmDialog(
-        user: user,
-        onConfirm: (reason) => settingsCubit.deleteUser(
-          userId: user.id,
-          fullName: user.name,
-          reason: reason,
-        ),
-      ),
-    );
-    if (deleted == true && mounted) {
-      await _loadUsers();
-    }
-  }
-
-  Future<void> _changePermission(_PermissionUser user, bool grant) async {
-    final action = grant ? 'منح' : 'سحب';
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: Text('$action صلاحية عكس الصرف'),
-          content: Text(
-            'هل تريد $action صلاحية عكس مستندات الصرف للمستخدم "${user.name}"؟',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('إلغاء'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: Text('تأكيد $action'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _updatingIds.add(user.id));
-    try {
-      await _supabase.rpc(
-        grant
-            ? 'rpc_grant_profile_permission'
-            : 'rpc_revoke_profile_permission',
-        params: {'p_profile_id': user.id},
-      );
-      await _loadUsers();
-      if (!mounted) return;
-      _showFeedbackSnackBar(
-        context,
-        'تم $action صلاحية عكس الصرف للمستخدم ${user.name}',
-      );
-    } catch (e) {
-      if (!mounted) return;
-      _showFeedbackSnackBar(
-        context,
-        'تعذر $action الصلاحية: $e',
-        isError: true,
-      );
-    } finally {
-      if (mounted) setState(() => _updatingIds.remove(user.id));
-    }
-  }
-
-  List<_PermissionUser> get _filteredUsers {
-    final query = _searchController.text.trim().toLowerCase();
-    if (query.isEmpty) return _users;
-    return _users.where((user) {
-      return user.name.toLowerCase().contains(query) ||
-          (user.employeeCode ?? '').toLowerCase().contains(query) ||
-          user.role.toLowerCase().contains(query) ||
-          _roleLabelAr(user.role).contains(query);
-    }).toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final currentUserId = _supabase.auth.currentUser?.id;
-    final visibleUsers = _filteredUsers;
-
-    return _SettingsCardContainer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionCardHeader(
-            icon: LucideIcons.shieldCheck,
-            iconColor: AppColors.zoneC2Blue,
-            iconBackground: AppColors.zoneC2Blue.withValues(alpha: 0.1),
-            title: 'إدارة المستخدمين والصلاحيات',
-            subtitle: 'إضافة أو حذف الموظفين وإدارة صلاحية عكس الصرف',
-            trailing: IconButton.filledTonal(
-              tooltip: 'تحديث القائمة',
-              onPressed: _loading ? null : _loadUsers,
-              icon: const Icon(LucideIcons.refreshCw, size: 16),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _openAddUserDialog,
-              icon: const Icon(LucideIcons.plus, size: 17),
-              label: const Text(
-                'إضافة مستخدم جديد',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primaryNavy,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _searchController,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              hintText: 'بحث باسم الموظف أو الكود أو الصلاحية...',
-              prefixIcon: const Icon(LucideIcons.search, size: 18),
-              isDense: true,
-              filled: true,
-              fillColor: const Color(0xFFF8FAFC),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.borderLight),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.borderLight),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _buildUsersContent(visibleUsers, currentUserId),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUsersContent(
-    List<_PermissionUser> visibleUsers,
-    String? currentUserId,
-  ) {
-    if (_loading) {
-      return const SizedBox(
-        height: 220,
-        child: ResponsiveColdStorageShimmer(
-          mode: ShimmerLayoutMode.tableList,
-          itemCountOverride: 3,
-        ),
-      );
-    }
-
-    if (_error != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'تعذر تحميل المستخدمين: $_error',
-            style: const TextStyle(color: AppColors.dangerRed, fontSize: 12),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: _loadUsers,
-            icon: const Icon(LucideIcons.refreshCw, size: 15),
-            label: const Text('إعادة المحاولة'),
-          ),
-        ],
-      );
-    }
-
-    if (visibleUsers.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(20),
-        child: Center(
-          child: Text(
-            'لا يوجد موظفون مطابقون للبحث.',
-            style: TextStyle(color: AppColors.textSecondary),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.borderLight),
-      ),
-      child: Column(
-        children: List.generate(visibleUsers.length, (idx) {
-          final user = visibleUsers[idx];
-          final isBusy = _updatingIds.contains(user.id);
-          final isSelf = user.id == currentUserId;
-
-          return Column(
-            children: [
-              _UserManagementTile(
-                user: user,
-                isBusy: isBusy,
-                canDelete: !isSelf && user.isActive,
-                onToggleDispatchReversal: (val) => _changePermission(user, val),
-                onDeletePressed: () => _openDeleteUserDialog(user),
-              ),
-              if (idx < visibleUsers.length - 1) const Divider(height: 1),
-            ],
-          );
-        }),
-      ),
-    );
-  }
-}
-
+// ignore: unused_element
 class _UserManagementTile extends StatelessWidget {
   final _PermissionUser user;
   final bool isBusy;
@@ -1590,7 +1292,7 @@ class _AddUserDialogState extends State<_AddUserDialog> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<AppUserRole>(
-                      value: _selectedRole,
+                      initialValue: _selectedRole,
                       isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'الصلاحية (الدور الوظيفي)',

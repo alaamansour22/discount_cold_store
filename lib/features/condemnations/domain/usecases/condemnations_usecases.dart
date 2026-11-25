@@ -2,40 +2,42 @@ import '../../../../core/error/error_handler.dart';
 import '../entities/condemnations_entities.dart';
 import '../repositories/i_condemnations_repository.dart';
 
-class GetActiveCondemnationAlertsUseCase {
+class GetCondemnationAlertsPaginatedUseCase {
   final ICondemnationsRepository _repository;
-  const GetActiveCondemnationAlertsUseCase(this._repository);
+  const GetCondemnationAlertsPaginatedUseCase(this._repository);
 
-  Future<
-    ({
-      List<CondemnationAlertItemEntity> alertItems,
-      int globalThresholdDays,
-      int userCustomAlertDays,
-    })
-  >
-  call() => _repository.getActiveCondemnationAlerts();
+  Future<CondemnationAlertsPageEntity> call(CondemnationAlertsFilter filter) {
+    final normalized = filter.copyWith(
+      page: filter.page < 1 ? 1 : filter.page,
+      pageSize: filter.pageSize.clamp(1, 500),
+      search: filter.search.trim(),
+    );
+    return _repository.getActiveAlertsPaginated(normalized);
+  }
 }
 
-class GetCondemnationRecordsUseCase {
+class GetCondemnationHistoryPaginatedUseCase {
   final ICondemnationsRepository _repository;
-  const GetCondemnationRecordsUseCase(this._repository);
+  const GetCondemnationHistoryPaginatedUseCase(this._repository);
 
-  Future<List<CondemnationHistoryRecordEntity>> call({
-    DateTime? fromDate,
-    DateTime? toDate,
-    int limit = 300,
-  }) async {
-    if (fromDate != null && toDate != null && toDate.isBefore(fromDate)) {
+  Future<CondemnationHistoryPageEntity> call(
+    CondemnationHistoryFilter filter,
+  ) async {
+    if (filter.fromDate != null &&
+        filter.toDate != null &&
+        filter.toDate!.isBefore(filter.fromDate!)) {
       throw const AppFailure(
-        message: 'تاريخ النهاية (إلى تاريخ) يجب أن يكون بعد أو يساوي تاريخ البداية (من تاريخ).',
+        message: 'تاريخ النهاية يجب أن يكون بعد أو يساوي تاريخ البداية.',
         type: FailureType.validationError,
       );
     }
-    return _repository.getCondemnationRecords(
-      fromDate: fromDate,
-      toDate: toDate,
-      limit: limit,
+
+    final normalized = filter.copyWith(
+      page: filter.page < 1 ? 1 : filter.page,
+      pageSize: filter.pageSize.clamp(1, 1000),
+      search: filter.search.trim(),
     );
+    return _repository.getCondemnationHistoryPaginated(normalized);
   }
 }
 
@@ -49,6 +51,13 @@ class ApproveItemCondemnationUseCase {
     required double quantityToCondemn,
     required String reason,
   }) async {
+    final cleanId = palletItemId.trim();
+    if (cleanId.isEmpty) {
+      throw const AppFailure(
+        message: 'معرّف الصنف غير صحيح.',
+        type: FailureType.validationError,
+      );
+    }
     if (quantityToCondemn <= 0 || quantityToCondemn > availableQuantity) {
       throw AppFailure(
         message:
@@ -56,10 +65,20 @@ class ApproveItemCondemnationUseCase {
         type: FailureType.validationError,
       );
     }
+    final cleanReason = reason.trim().isEmpty
+        ? 'إعدام صلاحية معتمد'
+        : reason.trim();
+    if (cleanReason.length > 500) {
+      throw const AppFailure(
+        message: 'سبب الإعدام أطول من الحد المسموح (500 حرف).',
+        type: FailureType.validationError,
+      );
+    }
+
     return _repository.approveItemCondemnation(
-      palletItemId: palletItemId,
+      palletItemId: cleanId,
       quantityToCondemn: quantityToCondemn,
-      reason: reason.trim().isEmpty ? 'إعدام صلاحية معتمد' : reason.trim(),
+      reason: cleanReason,
     );
   }
 }
@@ -71,16 +90,16 @@ class WatchRealtimeCondemnationChangesUseCase {
   Stream<void> call() => _repository.watchRealtimeCondemnationChanges();
 }
 
-/// حزمة UseCases مجمعة لموديول الإعدامات لسهولة حقنها في CondemnationsCubit
+/// حزمة UseCases مجمعة لموديول الإعدامات (توافق كامل مع InjectionContainer)
 class CondemnationsUseCases {
-  final GetActiveCondemnationAlertsUseCase getActiveAlerts;
-  final GetCondemnationRecordsUseCase getHistoryRecords;
+  final GetCondemnationAlertsPaginatedUseCase getActiveAlerts;
+  final GetCondemnationHistoryPaginatedUseCase getHistoryRecords;
   final ApproveItemCondemnationUseCase approveCondemnation;
   final WatchRealtimeCondemnationChangesUseCase watchRealtimeChanges;
 
   CondemnationsUseCases(ICondemnationsRepository repository)
-    : getActiveAlerts = GetActiveCondemnationAlertsUseCase(repository),
-      getHistoryRecords = GetCondemnationRecordsUseCase(repository),
+    : getActiveAlerts = GetCondemnationAlertsPaginatedUseCase(repository),
+      getHistoryRecords = GetCondemnationHistoryPaginatedUseCase(repository),
       approveCondemnation = ApproveItemCondemnationUseCase(repository),
       watchRealtimeChanges = WatchRealtimeCondemnationChangesUseCase(
         repository,

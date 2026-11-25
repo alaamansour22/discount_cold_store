@@ -1,5 +1,5 @@
-import 'package:discount_cold_store/features/movements_log/domain/entities/movements_log_entities.dart';
-import 'package:discount_cold_store/features/receiving/domain/entities/receiving_entities.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart' as intl;
@@ -7,7 +7,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/movements_log_pdf_service.dart';
+import '../../../../core/widgets/app_pagination_bar.dart';
+import '../../../../core/widgets/app_pro_data_table.dart';
 import '../../../../core/widgets/responsive_shimmer.dart';
+import '../../../receiving/domain/entities/receiving_entities.dart';
+import '../../domain/entities/movements_log_entities.dart';
 import '../cubit/movements_log_cubit.dart';
 import '../cubit/movements_log_state.dart';
 
@@ -19,155 +23,247 @@ class MovementsLogPage extends StatefulWidget {
 }
 
 class _MovementsLogPageState extends State<MovementsLogPage> {
-  final ValueNotifier<String> _searchNotifier = ValueNotifier<String>('');
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
+  bool _isExportingPdf = false;
 
   @override
   void dispose() {
-    _searchNotifier.dispose();
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
   String _fmtDate(DateTime d) => intl.DateFormat('yyyy-MM-dd').format(d);
+
   String _fmtDateTime(DateTime d) =>
       intl.DateFormat('yyyy-MM-dd  HH:mm').format(d);
 
-  Future<void> _printMovementsPdf(List<SystemMovementEntity> movements) async {
-    final rows = movements
-        .map(
-          (m) => <String>[
-            _fmtDateTime(m.createdAt),
-            m.performedByName,
-            m.movementType.arLabel,
-            m.toSlotCode ?? m.fromSlotCode ?? '-',
-            '${m.quantityChanged} ${m.unit.arLabel}',
-            m.itemName,
-            m.sourceEntity.arLabel,
-            m.notes ?? '-',
-          ],
-        )
-        .toList();
-    await MovementsLogPdfService.printReport(rows: rows);
+  String _fmtQty(double v) =>
+      v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) {
+        return;
+      }
+      final cubit = context.read<MovementsLogCubit>();
+      cubit.updateFilter(cubit.state.filter.copyWith(search: value.trim()));
+    });
+  }
+
+  void _clearAllFilters(MovementsLogCubit cubit) {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    cubit.clearFilters();
+  }
+
+  Future<void> _printMovementsPdf(MovementsLogCubit cubit) async {
+    if (_isExportingPdf) {
+      return;
+    }
+    setState(() => _isExportingPdf = true);
+
+    try {
+      final exported = await cubit.fetchForExport();
+      final movements = exported.page.items;
+      final rows = movements
+          .map(
+            (m) => <String>[
+              _fmtDateTime(m.createdAt),
+              m.performedByName,
+              m.movementType.arLabel,
+              m.toSlotCode ?? m.fromSlotCode ?? '-',
+              '${_fmtQty(m.quantityChanged)} ${m.unit.arLabel}',
+              m.itemName,
+              m.sourceEntity.arLabel,
+              m.notes ?? '-',
+            ],
+          )
+          .toList();
+      await MovementsLogPdfService.printReport(rows: rows);
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('تعذر تصدير ملف PDF: $e'),
+            backgroundColor: AppColors.dangerRed,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } finally {
+      if (mounted) {
+        setState(() => _isExportingPdf = false);
+      }
+    }
+  }
+
+  Future<void> _pickDate(
+    BuildContext context,
+    MovementsLogCubit cubit,
+    MovementsLogFilter filter,
+    bool isFrom,
+  ) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: (isFrom ? filter.fromDate : filter.toDate) ?? DateTime.now(),
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2035),
+      locale: const Locale('ar', 'EG'),
+      helpText: isFrom ? 'اختر تاريخ البداية' : 'اختر تاريخ النهاية',
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+
+    var nextFrom = filter.fromDate;
+    var nextTo = filter.toDate;
+    if (isFrom) {
+      nextFrom = picked;
+      if (nextTo != null && nextFrom.isAfter(nextTo)) {
+        nextTo = picked;
+      }
+    } else {
+      nextTo = picked;
+      if (nextFrom != null && nextTo.isBefore(nextFrom)) {
+        nextFrom = picked;
+      }
+    }
+
+    await cubit.updateFilter(
+      filter.copyWith(fromDate: nextFrom, toDate: nextTo),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<MovementsLogCubit, MovementsLogState>(
+    return BlocConsumer<MovementsLogCubit, MovementsLogState>(
+      listenWhen: (prev, curr) =>
+          prev.failure != curr.failure && curr.failure != null,
+      listener: (context, state) {
+        final isOffstage =
+            context.findAncestorWidgetOfExactType<Offstage>()?.offstage ??
+            false;
+        if (isOffstage || state.failure == null) {
+          return;
+        }
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(state.failure!.message),
+              backgroundColor: AppColors.dangerRed,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+      },
       builder: (context, state) {
-        if (state.isLoading) {
+        if (!state.initialized && state.isLoading) {
           return const ResponsiveColdStorageShimmer(
             mode: ShimmerLayoutMode.tableList,
           );
         }
 
         final cubit = context.read<MovementsLogCubit>();
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 900;
-            final pageWidth = constraints.maxWidth > 1500
-                ? 1440.0
-                : constraints.maxWidth;
-            return Align(
-              alignment: Alignment.topCenter,
-              child: SizedBox(
-                width: pageWidth,
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isWide ? 24 : 14,
-                    vertical: isWide ? 22 : 14,
-                  ),
-                  child: ValueListenableBuilder<String>(
-                    valueListenable: _searchNotifier,
-                    builder: (context, query, _) {
-                      final filtered = _filterMovements(state.movements, query);
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildFilters(context, cubit, state, isWide),
-                          const SizedBox(height: 14),
-                          _buildResultsHeader(
-                            filtered.length,
-                            filtered,
-                            isWide,
-                          ),
-                          const SizedBox(height: 10),
-                          Expanded(
-                            child: RefreshIndicator(
-                              onRefresh: () => cubit.loadMovements(),
-                              child: filtered.isEmpty
-                                  ? ListView(
-                                      physics:
-                                          const AlwaysScrollableScrollPhysics(),
-                                      children: [
-                                        SizedBox(
-                                          height: 260,
-                                          child: _buildEmptyState(),
-                                        ),
-                                      ],
-                                    )
-                                  : isWide
-                                  ? _buildDesktopRefreshTable(filtered)
-                                  : _buildMobileList(filtered),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
+        final pageData = state.data.page;
+        final summary = state.data.summary;
+        final movements = pageData.items;
+
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 900;
+              return Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isWide ? 24 : 14,
+                  vertical: isWide ? 20 : 12,
                 ),
-              ),
-            );
-          },
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildFilters(context, cubit, state.filter, isWide),
+                    const SizedBox(height: 14),
+                    _buildResultsHeader(cubit, summary, isWide),
+                    if (state.isLoading) ...[
+                      const SizedBox(height: 8),
+                      const LinearProgressIndicator(minHeight: 2.5),
+                    ],
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: movements.isEmpty
+                          ? RefreshIndicator(
+                              onRefresh: () => cubit.loadMovements(),
+                              child: ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: [
+                                  SizedBox(
+                                    height: 260,
+                                    child: _buildEmptyState(
+                                      cubit,
+                                      state.filter,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : isWide
+                          ? _buildDesktopTable(context, movements, summary)
+                          : RefreshIndicator(
+                              onRefresh: () => cubit.loadMovements(),
+                              child: _buildMobileList(movements),
+                            ),
+                    ),
+                    if (pageData.totalCount > 0) ...[
+                      const SizedBox(height: 10),
+                      AppPaginationBar(
+                        pageData: pageData,
+                        isLoading: state.isLoading,
+                        pageSizeOptions: const [15, 25, 50],
+                        onPageChanged: cubit.goToPage,
+                        onPageSizeChanged: cubit.changePageSize,
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
         );
       },
     );
   }
 
-  List<SystemMovementEntity> _filterMovements(
-    List<SystemMovementEntity> movements,
-    String query,
-  ) {
-    final q = query.trim().toLowerCase();
-    if (q.isEmpty) return movements;
-    return movements
-        .where(
-          (m) =>
-              m.itemName.toLowerCase().contains(q) ||
-              m.performedByName.toLowerCase().contains(q) ||
-              m.palletId.toLowerCase().contains(q) ||
-              (m.toSlotCode ?? '').toLowerCase().contains(q) ||
-              (m.fromSlotCode ?? '').toLowerCase().contains(q) ||
-              m.movementType.arLabel.toLowerCase().contains(q) ||
-              m.sourceEntity.arLabel.toLowerCase().contains(q) ||
-              (m.notes ?? '').toLowerCase().contains(q),
-        )
-        .toList();
-  }
-
   Widget _buildFilters(
     BuildContext context,
     MovementsLogCubit cubit,
-    MovementsLogState state,
+    MovementsLogFilter filter,
     bool isWide,
   ) {
     final dateControls = Row(
       children: [
         Expanded(
           child: _dateButton(
-            label: state.fromDate == null
+            label: filter.fromDate == null
                 ? 'من تاريخ'
-                : _fmtDate(state.fromDate!),
+                : _fmtDate(filter.fromDate!),
             icon: LucideIcons.calendarDays,
-            onTap: () => _pickDate(context, cubit, state, true),
+            onTap: () => _pickDate(context, cubit, filter, true),
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
           child: _dateButton(
-            label: state.toDate == null ? 'إلى تاريخ' : _fmtDate(state.toDate!),
+            label: filter.toDate == null
+                ? 'إلى تاريخ'
+                : _fmtDate(filter.toDate!),
             icon: LucideIcons.calendarCheck,
-            onTap: () => _pickDate(context, cubit, state, false),
+            onTap: () => _pickDate(context, cubit, filter, false),
           ),
         ),
       ],
@@ -178,7 +274,7 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
         Expanded(
           child: _filterDropdown<MovementActionType>(
             label: 'نوع الحركة',
-            value: state.movementTypeFilter,
+            value: filter.movementType,
             items: MovementActionType.values
                 .map(
                   (e) => DropdownMenuItem<MovementActionType?>(
@@ -187,12 +283,11 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
                   ),
                 )
                 .toList(),
-            onChanged: (value) => cubit.applyFilters(
-              fromDate: state.fromDate,
-              toDate: state.toDate,
-              movementTypeFilter: value,
-              clearMovementType: value == null,
-              sourceFilter: state.sourceFilter,
+            onChanged: (value) => cubit.updateFilter(
+              filter.copyWith(
+                movementType: value,
+                clearMovementType: value == null,
+              ),
             ),
           ),
         ),
@@ -200,7 +295,7 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
         Expanded(
           child: _filterDropdown<ReceivingSource>(
             label: 'الجهة',
-            value: state.sourceFilter,
+            value: filter.source,
             items: ReceivingSource.values
                 .map(
                   (e) => DropdownMenuItem<ReceivingSource?>(
@@ -209,12 +304,8 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
                   ),
                 )
                 .toList(),
-            onChanged: (value) => cubit.applyFilters(
-              fromDate: state.fromDate,
-              toDate: state.toDate,
-              movementTypeFilter: state.movementTypeFilter,
-              sourceFilter: value,
-              clearSource: value == null,
+            onChanged: (value) => cubit.updateFilter(
+              filter.copyWith(source: value, clearSource: value == null),
             ),
           ),
         ),
@@ -222,85 +313,83 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
     );
 
     return Container(
-      padding: EdgeInsets.all(isWide ? 18 : 13),
+      padding: EdgeInsets.all(isWide ? 16 : 13),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.borderLight),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextField(
-            controller: _searchController,
-            onChanged: (v) => _searchNotifier.value = v,
-            decoration: InputDecoration(
-              hintText: 'ابحث بالصنف أو البالتة أو الموقع أو المستخدم',
-              prefixIcon: const Icon(LucideIcons.search, size: 19),
-              suffixIcon: _searchNotifier.value.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'مسح البحث',
-                      icon: const Icon(Icons.close, size: 18),
-                      onPressed: () {
-                        _searchController.clear();
-                        _searchNotifier.value = '';
-                      },
-                    ),
-              isDense: true,
-              filled: true,
-              fillColor: const Color(0xFFF8FAFD),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 14,
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _searchController,
+            builder: (_, val, _) => TextField(
+              controller: _searchController,
+              onChanged: _onSearchChanged,
+              decoration: InputDecoration(
+                hintText: 'ابحث بالصنف أو كود البالتة أو الموقع أو المستخدم',
+                prefixIcon: const Icon(LucideIcons.search, size: 18),
+                suffixIcon: val.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'مسح البحث',
+                        icon: const Icon(LucideIcons.x, size: 17),
+                        onPressed: () {
+                          _searchController.clear();
+                          _onSearchChanged('');
+                        },
+                      ),
+                isDense: true,
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.borderLight),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.borderLight),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 11),
+          const SizedBox(height: 10),
           if (isWide)
             Row(
               children: [
                 Expanded(flex: 5, child: dateControls),
                 const SizedBox(width: 12),
-                Expanded(flex: 4, child: dropdowns),
+                Expanded(flex: 5, child: dropdowns),
+                if (filter.hasActiveFilters) ...[
+                  const SizedBox(width: 8),
+                  TextButton.icon(
+                    onPressed: () => _clearAllFilters(cubit),
+                    icon: const Icon(LucideIcons.rotateCcw, size: 14),
+                    label: const Text('مسح'),
+                  ),
+                ],
               ],
             )
           else ...[
             dateControls,
             const SizedBox(height: 9),
             dropdowns,
-          ],
-          if (state.fromDate != null ||
-              state.toDate != null ||
-              state.movementTypeFilter != null ||
-              state.sourceFilter != null ||
-              _searchNotifier.value.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: TextButton.icon(
-                onPressed: () {
-                  _searchController.clear();
-                  _searchNotifier.value = '';
-                  cubit.applyFilters(
-                    fromDate: null,
-                    toDate: null,
-                    clearMovementType: true,
-                    clearSource: true,
-                  );
-                },
-                icon: const Icon(LucideIcons.rotateCcw, size: 15),
-                label: const Text('مسح الفلاتر'),
+            if (filter.hasActiveFilters) ...[
+              const SizedBox(height: 6),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: () => _clearAllFilters(cubit),
+                  icon: const Icon(LucideIcons.rotateCcw, size: 14),
+                  label: const Text('مسح الفلاتر'),
+                ),
               ),
-            ),
+            ],
           ],
         ],
       ),
@@ -314,11 +403,11 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
     required ValueChanged<T?> onChanged,
   }) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 44),
+      constraints: const BoxConstraints(minHeight: 42),
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFD),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        color: const Color(0xFFF8FAFC),
+        border: Border.all(color: AppColors.borderLight),
         borderRadius: BorderRadius.circular(11),
       ),
       child: DropdownButton<T?>(
@@ -343,7 +432,7 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
   }) {
     return OutlinedButton.icon(
       onPressed: onTap,
-      icon: Icon(icon, size: 16),
+      icon: Icon(icon, size: 15),
       label: Text(
         label,
         overflow: TextOverflow.ellipsis,
@@ -351,41 +440,22 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
       ),
       style: OutlinedButton.styleFrom(
         foregroundColor: AppColors.primaryNavy,
-        side: const BorderSide(color: Color(0xFFDCE4EF)),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+        side: const BorderSide(color: AppColors.borderLight),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 11),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
       ),
     );
   }
 
-  Future<void> _pickDate(
-    BuildContext context,
-    MovementsLogCubit cubit,
-    MovementsLogState state,
-    bool isFrom,
-  ) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: (isFrom ? state.fromDate : state.toDate) ?? DateTime.now(),
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2035),
-    );
-    if (picked == null) return;
-    await cubit.applyFilters(
-      fromDate: isFrom ? picked : state.fromDate,
-      toDate: isFrom ? state.toDate : picked,
-      movementTypeFilter: state.movementTypeFilter,
-      sourceFilter: state.sourceFilter,
-    );
-  }
-
   Widget _buildResultsHeader(
-    int count,
-    List<SystemMovementEntity> movements,
+    MovementsLogCubit cubit,
+    MovementsLogSummaryEntity summary,
     bool isWide,
   ) {
     return Row(
       children: [
+        const Icon(LucideIcons.history, size: 18, color: AppColors.zoneC2Blue),
+        const SizedBox(width: 7),
         const Text(
           'سجل الحركات',
           style: TextStyle(
@@ -395,32 +465,42 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
           ),
         ),
         const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEAF0FF),
-            borderRadius: BorderRadius.circular(20),
+        _headerBadge('${summary.totalMovements}', AppColors.zoneC2Blue),
+        if (isWide) ...[
+          const SizedBox(width: 6),
+          _headerBadge(
+            'اليوم: ${summary.todayMovements}',
+            AppColors.successGreen,
           ),
-          child: Text(
-            '$count',
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: AppColors.primaryNavy,
-            ),
-          ),
-        ),
+        ],
         const Spacer(),
+        IconButton.filledTonal(
+          tooltip: 'تحديث',
+          onPressed: () => cubit.loadMovements(),
+          icon: const Icon(LucideIcons.refreshCw, size: 16),
+        ),
+        const SizedBox(width: 8),
         FilledButton.icon(
-          onPressed: movements.isEmpty
+          onPressed: (summary.totalMovements == 0 || _isExportingPdf)
               ? null
-              : () => _printMovementsPdf(movements),
-          icon: const Icon(LucideIcons.fileDown, size: 17),
-          label: Text(isWide ? 'تصدير PDF' : 'PDF'),
+              : () => _printMovementsPdf(cubit),
+          icon: _isExportingPdf
+              ? const SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(LucideIcons.fileDown, size: 16),
+          label: Text(
+            _isExportingPdf ? 'تجهيز...' : (isWide ? 'تصدير PDF' : 'PDF'),
+          ),
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.primaryNavy,
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(11),
             ),
@@ -430,31 +510,41 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
     );
   }
 
+  Widget _headerBadge(String text, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontSize: 11.5,
+        fontWeight: FontWeight.w800,
+        color: color,
+      ),
+    ),
+  );
+
   Widget _buildMobileList(List<SystemMovementEntity> movements) {
     return ListView.separated(
-      padding: const EdgeInsets.only(bottom: 18),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(bottom: 12),
       itemCount: movements.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 9),
+      separatorBuilder: (_, _) => const SizedBox(height: 9),
       itemBuilder: (context, index) => _movementCard(movements[index]),
     );
   }
 
   Widget _movementCard(SystemMovementEntity m) {
     final color = _getMovementColor(m.movementType);
-    final location = m.toSlotCode ?? m.fromSlotCode ?? '-';
+    final location = m.toSlotCode ?? m.fromSlotCode ?? '—';
     return Container(
-      padding: const EdgeInsets.all(15),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x080D2742),
-            blurRadius: 10,
-            offset: Offset(0, 3),
-          ),
-        ],
+        border: Border.all(color: AppColors.borderLight),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -462,19 +552,19 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
           Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(11),
                 ),
                 child: Icon(
                   _getMovementIcon(m.movementType),
                   color: color,
-                  size: 19,
+                  size: 18,
                 ),
               ),
-              const SizedBox(width: 11),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -484,14 +574,16 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w900,
                         color: AppColors.primaryNavy,
                       ),
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
-                      m.movementType.arLabel,
+                      '${m.movementType.arLabel} • ${m.palletReference}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -503,7 +595,7 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
               ),
               const SizedBox(width: 8),
               Text(
-                '${m.quantityChanged} ${m.unit.arLabel}',
+                '${_fmtQty(m.quantityChanged)} ${m.unit.arLabel}',
                 textAlign: TextAlign.end,
                 style: const TextStyle(
                   fontSize: 13,
@@ -513,13 +605,10 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
               ),
             ],
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Divider(height: 1, color: Color(0xFFEDF1F6)),
-          ),
+          const Divider(height: 20),
           Wrap(
-            spacing: 16,
-            runSpacing: 9,
+            spacing: 14,
+            runSpacing: 7,
             children: [
               _metaItem(LucideIcons.clock3, _fmtDateTime(m.createdAt)),
               _metaItem(LucideIcons.mapPin, location),
@@ -528,10 +617,10 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
             ],
           ),
           if (m.notes != null && m.notes!.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 9),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(9),
               decoration: BoxDecoration(
                 color: const Color(0xFFF7F9FC),
                 borderRadius: BorderRadius.circular(9),
@@ -541,25 +630,25 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
                 style: const TextStyle(
                   fontSize: 11,
                   color: AppColors.textSecondary,
-                  height: 1.5,
+                  height: 1.45,
                 ),
               ),
             ),
           ],
-          const SizedBox(height: 10),
+          const SizedBox(height: 9),
           Row(
             children: [
               Expanded(
                 child: _balanceChip(
-                  'السابق',
-                  '${m.previousQuantity} ${m.unit.arLabel}',
+                  'الرصيد السابق',
+                  '${_fmtQty(m.previousQuantity)} ${m.unit.arLabel}',
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _balanceChip(
-                  'الجديد',
-                  '${m.newQuantity} ${m.unit.arLabel}',
+                  'الرصيد الجديد',
+                  '${_fmtQty(m.newQuantity)} ${m.unit.arLabel}',
                 ),
               ),
             ],
@@ -572,17 +661,21 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
   Widget _metaItem(IconData icon, String value) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Icon(icon, size: 13, color: const Color(0xFF8292A6)),
-      const SizedBox(width: 5),
+      Icon(icon, size: 13, color: AppColors.textSecondary),
+      const SizedBox(width: 4),
       Text(
         value,
-        style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
+        style: const TextStyle(
+          fontSize: 11,
+          color: AppColors.textSecondary,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     ],
   );
 
   Widget _balanceChip(String label, String value) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
     decoration: BoxDecoration(
       color: const Color(0xFFF5F7FB),
       borderRadius: BorderRadius.circular(9),
@@ -594,13 +687,13 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
           label,
           style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
         ),
-        const SizedBox(height: 3),
+        const SizedBox(height: 2),
         Text(
           value,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            fontSize: 11,
+            fontSize: 11.5,
             fontWeight: FontWeight.w800,
             color: AppColors.primaryNavy,
           ),
@@ -609,147 +702,332 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
     ),
   );
 
-  Widget _buildDesktopRefreshTable(List<SystemMovementEntity> movements) {
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      children: [SizedBox(height: 520, child: _buildDesktopTable(movements))],
+  Widget _buildDesktopTable(
+    BuildContext context,
+    List<SystemMovementEntity> movements,
+    MovementsLogSummaryEntity summary,
+  ) {
+    return AppProDataTable<SystemMovementEntity>(
+      items: movements,
+      expandHeight: true,
+      minTableWidth: 960,
+      footerLabel:
+          'إجمالي الحركات المطابقة: ${summary.totalMovements} حركة (منها ${summary.todayMovements} اليوم)',
+      onRowTap: (m) => _showMovementDetailsDialog(context, m),
+      columns: [
+        AppProTableColumn(
+          label: 'التاريخ والوقت',
+          fixedWidth: 132,
+          cellBuilder: (_, m, _) => Text(
+            _fmtDateTime(m.createdAt),
+            textDirection: TextDirection.ltr,
+            style: const TextStyle(
+              fontSize: 11.5,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        AppProTableColumn(
+          label: 'نوع الحركة',
+          fixedWidth: 145,
+          cellBuilder: (_, m, _) {
+            final color = _getMovementColor(m.movementType);
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                m.movementType.arLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            );
+          },
+        ),
+        AppProTableColumn(
+          label: 'الصنف',
+          flex: 3,
+          cellBuilder: (_, m, _) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                m.itemName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.primaryNavy,
+                ),
+              ),
+              Text(
+                m.palletReference,
+                textDirection: TextDirection.ltr,
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        AppProTableColumn(
+          label: 'الكمية',
+          fixedWidth: 105,
+          alignment: Alignment.center,
+          cellBuilder: (_, m, _) => Text(
+            '${_fmtQty(m.quantityChanged)} ${m.unit.arLabel}',
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              color: AppColors.primaryNavy,
+            ),
+          ),
+        ),
+        AppProTableColumn(
+          label: 'الرصيد',
+          fixedWidth: 102,
+          alignment: Alignment.center,
+          cellBuilder: (_, m, _) => Text(
+            '${_fmtQty(m.previousQuantity)} → ${_fmtQty(m.newQuantity)}',
+            textDirection: TextDirection.ltr,
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        AppProTableColumn(
+          label: 'الموقع',
+          fixedWidth: 112,
+          alignment: Alignment.center,
+          cellBuilder: (_, m, _) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              m.toSlotCode ?? m.fromSlotCode ?? '—',
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primaryNavy,
+              ),
+            ),
+          ),
+        ),
+        AppProTableColumn(
+          label: 'المنفذ والجهة',
+          flex: 2,
+          cellBuilder: (_, m, _) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                m.performedByName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primaryNavy,
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                m.sourceEntity.arLabel,
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildDesktopTable(List<SystemMovementEntity> movements) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(15),
-        child: SingleChildScrollView(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(const Color(0xFFF3F6FB)),
-              headingTextStyle: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-                color: AppColors.primaryNavy,
-              ),
-              dataTextStyle: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF344054),
-              ),
-              columnSpacing: 26,
-              horizontalMargin: 18,
-              columns: const [
-                DataColumn(label: Text('التاريخ والوقت')),
-                DataColumn(label: Text('نوع الحركة')),
-                DataColumn(label: Text('الصنف')),
-                DataColumn(label: Text('الكمية')),
-                DataColumn(label: Text('الرصيد السابق')),
-                DataColumn(label: Text('الرصيد الجديد')),
-                DataColumn(label: Text('الموقع')),
-                DataColumn(label: Text('المنفذ')),
-                DataColumn(label: Text('الجهة')),
-              ],
-              rows: movements.map((m) {
-                final color = _getMovementColor(m.movementType);
-                return DataRow(
-                  cells: [
-                    DataCell(Text(_fmtDateTime(m.createdAt))),
-                    DataCell(
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: .10),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          m.movementType.arLabel,
-                          style: TextStyle(
-                            color: color,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+  void _showMovementDetailsDialog(
+    BuildContext context,
+    SystemMovementEntity m,
+  ) {
+    final color = _getMovementColor(m.movementType);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: Row(
+            children: [
+              Icon(_getMovementIcon(m.movementType), color: color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      m.movementType.arLabel,
+                      style: const TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.primaryNavy,
                       ),
                     ),
-                    DataCell(
-                      SizedBox(
-                        width: 190,
-                        child: Text(
-                          m.itemName,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                    Text(
+                      '${m.itemName} • ${m.palletReference}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
                       ),
                     ),
-                    DataCell(
-                      Text(
-                        '${m.quantityChanged} ${m.unit.arLabel}',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                    DataCell(Text('${m.previousQuantity}')),
-                    DataCell(
-                      Text(
-                        '${m.newQuantity}',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                    DataCell(Text(m.toSlotCode ?? m.fromSlotCode ?? '-')),
-                    DataCell(Text(m.performedByName)),
-                    DataCell(Text(m.sourceEntity.arLabel)),
                   ],
-                );
-              }).toList(),
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                icon: const Icon(LucideIcons.x, size: 18),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: _balanceChip(
+                        'السابق',
+                        '${_fmtQty(m.previousQuantity)} ${m.unit.arLabel}',
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _balanceChip(
+                        'كمية الحركة',
+                        '${_fmtQty(m.quantityChanged)} ${m.unit.arLabel}',
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _balanceChip(
+                        'الجديد',
+                        '${_fmtQty(m.newQuantity)} ${m.unit.arLabel}',
+                      ),
+                    ),
+                  ],
+                ),
+                if (m.notes != null && m.notes!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.borderLight),
+                    ),
+                    child: Text(
+                      'الملاحظات: ${m.notes}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 6,
+                  children: [
+                    _metaItem(
+                      LucideIcons.mapPin,
+                      m.toSlotCode ?? m.fromSlotCode ?? '—',
+                    ),
+                    _metaItem(LucideIcons.userRound, m.performedByName),
+                    _metaItem(LucideIcons.building2, m.sourceEntity.arLabel),
+                    _metaItem(LucideIcons.clock3, _fmtDateTime(m.createdAt)),
+                  ],
+                ),
+              ],
             ),
           ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('إغلاق'),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildEmptyState() => Center(
+  Widget _buildEmptyState(
+    MovementsLogCubit cubit,
+    MovementsLogFilter filter,
+  ) => Center(
     child: Container(
       padding: const EdgeInsets.all(30),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: AppColors.borderLight),
       ),
-      child: const Column(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(LucideIcons.fileSearch, size: 42, color: Color(0xFF9AA8B8)),
-          SizedBox(height: 12),
-          Text(
+          const Icon(LucideIcons.fileSearch, size: 42, color: Color(0xFF9AA8B8)),
+          const SizedBox(height: 12),
+          const Text(
             'لا توجد حركات مطابقة',
             style: TextStyle(
               fontWeight: FontWeight.w900,
               color: AppColors.primaryNavy,
             ),
           ),
-          SizedBox(height: 5),
-          Text(
+          const SizedBox(height: 5),
+          const Text(
             'جرّب تغيير كلمات البحث أو الفلاتر المحددة.',
             style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
+          if (filter.hasActiveFilters) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _clearAllFilters(cubit),
+              icon: const Icon(LucideIcons.rotateCcw, size: 15),
+              label: const Text('مسح الفلاتر'),
+            ),
+          ],
         ],
       ),
     ),
   );
 
-Color _getMovementColor(MovementActionType type) {
+  Color _getMovementColor(MovementActionType type) {
     switch (type) {
       case MovementActionType.receiveNew:
-        return AppColors.successGreen; // أو اللون الحالي عندك
+        return AppColors.successGreen;
       case MovementActionType.addItemToPallet:
-        return AppColors.primaryNavy; // أو اللون الحالي عندك
+        return AppColors.mixedPurple;
       case MovementActionType.dispatch:
-        return AppColors.successGreen; // أو اللون الحالي عندك
+        return AppColors.zoneC2Blue;
       case MovementActionType.dispatchReversal:
         return AppColors.warningAmber;
       case MovementActionType.condemn:
@@ -761,7 +1039,7 @@ Color _getMovementColor(MovementActionType type) {
     }
   }
 
-IconData _getMovementIcon(MovementActionType type) {
+  IconData _getMovementIcon(MovementActionType type) {
     switch (type) {
       case MovementActionType.receiveNew:
         return LucideIcons.packagePlus;

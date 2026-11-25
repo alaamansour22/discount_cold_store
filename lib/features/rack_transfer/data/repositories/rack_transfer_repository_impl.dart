@@ -12,8 +12,12 @@ class RackTransferRepositoryImpl implements IRackTransferRepository {
   @override
   Future<List<TransferSlotEntity>> getAllSlotsForTransfer() async {
     try {
-      final rawSlots = await _remoteDataSource.fetchRawSlots();
-      final activeItemsRows = await _remoteDataSource.fetchActiveItems();
+      final results = await Future.wait([
+        _remoteDataSource.fetchRawSlots(),
+        _remoteDataSource.fetchActiveItems(),
+      ]);
+      final rawSlots = results[0];
+      final activeItemsRows = results[1];
 
       final Map<String, List<TransferPalletItemSummary>> itemsBySlotId = {};
       final Map<String, String> palletIdBySlotId = {};
@@ -21,7 +25,9 @@ class RackTransferRepositoryImpl implements IRackTransferRepository {
 
       for (final row in activeItemsRows) {
         final slotId = row['slot_id'] as String? ?? '';
-        if (slotId.isEmpty) continue;
+        if (slotId.isEmpty) {
+          continue;
+        }
         palletIdBySlotId[slotId] = row['pallet_id'] as String? ?? '';
         palletRefBySlotId[slotId] = row['pallet_reference'] as String? ?? '';
         itemsBySlotId
@@ -56,11 +62,11 @@ class RackTransferRepositoryImpl implements IRackTransferRepository {
   }
 
   @override
-  Future<List<RackTransferHistoryEntity>> getRelocationHistory({
-    int limit = 150,
-  }) async {
+  Future<RackTransferHistoryPageEntity> getRelocationHistoryPaginated(
+    RackTransferHistoryFilter filter,
+  ) async {
     try {
-      return await _remoteDataSource.fetchRelocationMovements(limit: limit);
+      return await _remoteDataSource.fetchRelocationHistoryPaginated(filter);
     } catch (e) {
       throw ErrorHandler.handle(e);
     }

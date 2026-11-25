@@ -1,11 +1,26 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/app_pagination_bar.dart';
 import '../../../../core/widgets/responsive_shimmer.dart';
+import '../../../receiving/domain/entities/receiving_entities.dart';
 import '../../domain/entities/dispatch_entities.dart';
 import '../cubit/dispatch_cubit.dart';
 import '../cubit/dispatch_state.dart';
+import 'dispatch_history_view.dart';
 
+const _kPageBg = Color(0xFFF3F6FB);
+const _kBorder = Color(0xFFE3E8EF);
+const _kMuted = Color(0xFF64748B);
+
+String _fmtQty(double v) =>
+    v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(2);
+
+/// الشاشة الرئيسية للصرف: إنشاء مستند صرف جديد أو عرض السجل عبر DispatchHistoryView
 class DispatchPage extends StatefulWidget {
   final bool historyOnly;
 
@@ -16,938 +31,1016 @@ class DispatchPage extends StatefulWidget {
 }
 
 class _DispatchPageState extends State<DispatchPage> {
-  final Map<String, TextEditingController> quantities = {};
-  final Set<String> selected = {};
-  final search = TextEditingController();
+  final TextEditingController _searchCtrl = TextEditingController();
+  final Map<String, ReceivingPalletItemEntity> _selectedItems = {};
+  final Map<String, int> _palletTotalItemsCount = {};
+  final Map<String, TextEditingController> _qtyControllers = {};
+  Timer? _searchDebounce;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      context.read<DispatchCubit>().load();
-    });
+    if (!widget.historyOnly) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          context.read<DispatchCubit>().ensureAvailablePalletsLoaded();
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
-    search.dispose();
-    for (final controller in quantities.values) {
-      controller.dispose();
+    _searchDebounce?.cancel();
+    _searchCtrl.dispose();
+    for (final c in _qtyControllers.values) {
+      c.dispose();
     }
     super.dispose();
   }
 
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) {
+        return;
+      }
+      final cubit = context.read<DispatchCubit>();
+      cubit.updatePalletsFilter(
+        cubit.state.palletsFilter.copyWith(search: value.trim()),
+      );
+    });
+  }
+
+  void _clearFilters(DispatchCubit cubit) {
+    _searchDebounce?.cancel();
+    _searchCtrl.clear();
+    cubit.clearPalletsFilters();
+  }
+
+  void _clearSelections() {
+    setState(() {
+      _selectedItems.clear();
+      _palletTotalItemsCount.clear();
+    });
+  }
+
+  TextEditingController _controllerFor(ReceivingPalletItemEntity item) {
+    return _qtyControllers.putIfAbsent(
+      item.palletItemId,
+      () => TextEditingController(text: _fmtQty(item.quantity)),
+    );
+  }
+
+  void _toggleItem(
+    DispatchAvailablePalletEntity pallet,
+    ReceivingPalletItemEntity item,
+    bool selected,
+  ) {
+    setState(() {
+      _palletTotalItemsCount[pallet.palletId] = pallet.itemsCount;
+      if (selected) {
+        _selectedItems[item.palletItemId] = item;
+        _controllerFor(item);
+      } else {
+        _selectedItems.remove(item.palletItemId);
+      }
+    });
+  }
+
+  void _toggleWholePallet(DispatchAvailablePalletEntity pallet) {
+    final allSelected = pallet.items.every(
+      (i) => _selectedItems.containsKey(i.palletItemId),
+    );
+    setState(() {
+      _palletTotalItemsCount[pallet.palletId] = pallet.itemsCount;
+      for (final item in pallet.items) {
+        if (allSelected) {
+          _selectedItems.remove(item.palletItemId);
+        } else {
+          _selectedItems[item.palletItemId] = item;
+          final ctrl = _controllerFor(item);
+          ctrl.text = _fmtQty(item.quantity);
+        }
+      }
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_selectedItems.isEmpty) {
+      return;
+    }
+
+    final byPallet = <String, List<ReceivingPalletItemEntity>>{};
+    for (final item in _selectedItems.values) {
+      byPallet.putIfAbsent(item.palletId, () => []).add(item);
+    }
+
+    final lines = <DispatchDraftLine>[];
+    for (final entry in byPallet.entries) {
+      final palletId = entry.key;
+      final chosenItems = entry.value;
+      final totalItemsOnPallet = _palletTotalItemsCount[palletId] ?? 0;
+
+      final parsedQty = <String, double>{};
+      var allFullQty = true;
+
+      for (final item in chosenItems) {
+        final rawText = _qtyControllers[item.palletItemId]?.text.trim() ?? '';
+        final qty = double.tryParse(rawText);
+        if (qty == null || qty <= 0 || qty > item.quantity) {
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  'راجع كمية الصرف للصنف (${item.itemName}) — المتاح: ${_fmtQty(item.quantity)}',
+                ),
+                backgroundColor: AppColors.dangerRed,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          return;
+        }
+        parsedQty[item.palletItemId] = qty;
+        if (qty < item.quantity) {
+          allFullQty = false;
+        }
+      }
+
+      final palletFullySelected =
+          totalItemsOnPallet > 0 &&
+          chosenItems.length == totalItemsOnPallet &&
+          allFullQty;
+
+      for (final item in chosenItems) {
+        final qty = parsedQty[item.palletItemId]!;
+        lines.add(
+          DispatchDraftLine(
+            item: item,
+            quantity: qty,
+            method: palletFullySelected ? 'full_pallet' : 'custom_quantity',
+            palletFullySelected: palletFullySelected,
+          ),
+        );
+      }
+    }
+
+    FocusScope.of(context).unfocus();
+    await context.read<DispatchCubit>().create(lines);
+  }
+
   @override
-  Widget build(BuildContext context) => Directionality(
-    textDirection: TextDirection.rtl,
-    child: Scaffold(
-      backgroundColor: const Color(0xfff3f6fb),
-      body: BlocConsumer<DispatchCubit, DispatchState>(
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: _kPageBg,
+      child: BlocConsumer<DispatchCubit, DispatchState>(
+        listenWhen: (prev, curr) =>
+            prev.failure != curr.failure || prev.success != curr.success,
         listener: (context, state) {
-          if (state.error != null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.error!),
-                backgroundColor: const Color(0xffb42318),
-              ),
-            );
+          final isOffstage =
+              context.findAncestorWidgetOfExactType<Offstage>()?.offstage ??
+              false;
+          if (isOffstage) {
+            return;
           }
-          if (state.success != null) {
-            selected.clear();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.success!),
-                backgroundColor: const Color(0xff16834a),
-              ),
-            );
+
+          if (state.failure != null) {
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(
+                SnackBar(
+                  content: Text(state.failure!.message),
+                  backgroundColor: AppColors.dangerRed,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+          } else if (state.success != null) {
+            if (!widget.historyOnly && _selectedItems.isNotEmpty) {
+              _clearSelections();
+            }
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(
+                SnackBar(
+                  content: Text(state.success!),
+                  backgroundColor: AppColors.successGreen,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
           }
         },
-        builder: (context, state) =>
-            widget.historyOnly ? _historyScreen(state) : _createScreen(state),
+        buildWhen: (prev, curr) {
+          if (widget.historyOnly) {
+            return false;
+          }
+          return prev.isPalletsLoading != curr.isPalletsLoading ||
+              prev.palletsInitialized != curr.palletsInitialized ||
+              prev.palletsData != curr.palletsData ||
+              prev.palletsFilter != curr.palletsFilter ||
+              prev.submitting != curr.submitting;
+        },
+        builder: (context, state) {
+          if (widget.historyOnly) {
+            return const DispatchHistoryView();
+          }
+          return _buildCreateView(context, state);
+        },
+      ),
+    );
+  }
+
+  Widget _buildCreateView(BuildContext context, DispatchState state) {
+    if (!state.palletsInitialized && state.isPalletsLoading) {
+      return const ResponsiveColdStorageShimmer(
+        mode: ShimmerLayoutMode.tableList,
+        itemCountOverride: 5,
+      );
+    }
+
+    final cubit = context.read<DispatchCubit>();
+    final pageData = state.palletsData.page;
+    final summary = state.palletsData.summary;
+    final filter = state.palletsFilter;
+    final pallets = pageData.items;
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final desktop = constraints.maxWidth >= 900;
+          final pad = desktop ? 24.0 : 12.0;
+
+          return Column(
+            children: [
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () => cubit.loadAvailablePallets(),
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverPadding(
+                        padding: EdgeInsets.fromLTRB(
+                          pad,
+                          desktop ? 18 : 10,
+                          pad,
+                          10,
+                        ),
+                        sliver: SliverToBoxAdapter(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (desktop) ...[
+                                _buildDesktopHeader(cubit, summary),
+                                const SizedBox(height: 12),
+                              ],
+                              _buildFiltersCard(cubit, filter, desktop),
+                              if (!desktop) ...[
+                                const SizedBox(height: 9),
+                                _buildMobileStatsRow(summary),
+                              ],
+                              if (state.isPalletsLoading) ...[
+                                const SizedBox(height: 8),
+                                const LinearProgressIndicator(minHeight: 2.5),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (pallets.isEmpty)
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: _buildEmptyState(cubit, filter),
+                        )
+                      else ...[
+                        if (desktop)
+                          _buildDesktopPalletPairs(pallets, pad)
+                        else
+                          SliverPadding(
+                            padding: EdgeInsets.fromLTRB(pad, 0, pad, 10),
+                            sliver: SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (_, i) => Padding(
+                                  padding: EdgeInsets.only(
+                                    bottom: i == pallets.length - 1 ? 0 : 10,
+                                  ),
+                                  child: _buildPalletCard(pallets[i]),
+                                ),
+                                childCount: pallets.length,
+                              ),
+                            ),
+                          ),
+                        SliverPadding(
+                          padding: EdgeInsets.fromLTRB(pad, 0, pad, 16),
+                          sliver: SliverToBoxAdapter(
+                            child: AppPaginationBar(
+                              pageData: pageData,
+                              isLoading: state.isPalletsLoading,
+                              pageSizeOptions: const [15, 20, 50],
+                              onPageChanged: cubit.goToPalletsPage,
+                              onPageSizeChanged: cubit.changePalletsPageSize,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              _buildSubmitBar(state, desktop),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDesktopHeader(
+    DispatchCubit cubit,
+    DispatchAvailablePalletsSummaryEntity summary,
+  ) {
+    return Row(
+      children: [
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'إنشاء مستند صرف',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.primaryNavy,
+                ),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'حدد البالتات أو الأصناف والكميات المطلوب صرفها لمنفذ البيع',
+                style: TextStyle(fontSize: 12, color: _kMuted),
+              ),
+            ],
+          ),
+        ),
+        _statPill('${summary.totalPallets} بالتة متاحة', AppColors.primaryNavy),
+        const SizedBox(width: 8),
+        _statPill(summary.totalsByUnitSummary, AppColors.successGreen),
+        const SizedBox(width: 8),
+        IconButton.filledTonal(
+          tooltip: 'تحديث',
+          onPressed: () => cubit.loadAvailablePallets(),
+          icon: const Icon(LucideIcons.refreshCw, size: 16),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileStatsRow(DispatchAvailablePalletsSummaryEntity summary) {
+    return Row(
+      children: [
+        _statPill('${summary.totalPallets} بالتة متاحة', AppColors.primaryNavy),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: _statPill(
+              summary.totalsByUnitSummary,
+              AppColors.successGreen,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _statPill(String text, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: 11.5,
+        fontWeight: FontWeight.w800,
+        color: color,
       ),
     ),
   );
 
-  Widget _pageFrame({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required Widget child,
-  }) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final desktop = constraints.maxWidth >= 900;
-        return Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: desktop ? 1440 : 760),
-            child: Column(
+  Widget _buildFiltersCard(
+    DispatchCubit cubit,
+    DispatchAvailablePalletsFilter filter,
+    bool desktop,
+  ) {
+    final searchField = ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _searchCtrl,
+      builder: (_, val, _) => TextField(
+        controller: _searchCtrl,
+        onChanged: _onSearchChanged,
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          hintText: 'بحث بالصنف، رقم البالتة أو موقع الراك',
+          hintStyle: const TextStyle(fontSize: 12.5),
+          prefixIcon: const Icon(LucideIcons.search, size: 17),
+          suffixIcon: val.text.isEmpty
+              ? null
+              : IconButton(
+                  onPressed: () {
+                    _searchCtrl.clear();
+                    _onSearchChanged('');
+                  },
+                  icon: const Icon(LucideIcons.x, size: 16),
+                ),
+          isDense: true,
+          filled: true,
+          fillColor: const Color(0xFFF8FAFC),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 11,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(11),
+            borderSide: const BorderSide(color: _kBorder),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(11),
+            borderSide: const BorderSide(color: _kBorder),
+          ),
+        ),
+      ),
+    );
+
+    Widget chip({
+      required String label,
+      required bool selected,
+      required VoidCallback onTap,
+    }) => ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      showCheckmark: false,
+      visualDensity: VisualDensity.compact,
+      selectedColor: AppColors.primaryNavy,
+      backgroundColor: const Color(0xFFF8FAFC),
+      side: BorderSide(color: selected ? AppColors.primaryNavy : _kBorder),
+      labelStyle: TextStyle(
+        fontSize: 11.5,
+        fontWeight: FontWeight.w800,
+        color: selected ? Colors.white : AppColors.primaryNavy,
+      ),
+      onSelected: (_) => onTap(),
+    );
+
+    final chips = Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        chip(
+          label: 'كل المناطق',
+          selected: filter.zone == null,
+          onTap: () =>
+              cubit.updatePalletsFilter(filter.copyWith(clearZone: true)),
+        ),
+        chip(
+          label: 'C2',
+          selected: filter.zone == 'C2',
+          onTap: () => cubit.updatePalletsFilter(filter.copyWith(zone: 'C2')),
+        ),
+        chip(
+          label: 'C3',
+          selected: filter.zone == 'C3',
+          onTap: () => cubit.updatePalletsFilter(filter.copyWith(zone: 'C3')),
+        ),
+        chip(
+          label: 'موحدة',
+          selected: filter.palletKind == 'single',
+          onTap: () => cubit.updatePalletsFilter(
+            filter.palletKind == 'single'
+                ? filter.copyWith(clearPalletKind: true)
+                : filter.copyWith(palletKind: 'single'),
+          ),
+        ),
+        chip(
+          label: 'ميكس',
+          selected: filter.palletKind == 'mixed',
+          onTap: () => cubit.updatePalletsFilter(
+            filter.palletKind == 'mixed'
+                ? filter.copyWith(clearPalletKind: true)
+                : filter.copyWith(palletKind: 'mixed'),
+          ),
+        ),
+        if (filter.hasActiveFilters)
+          TextButton.icon(
+            onPressed: () => _clearFilters(cubit),
+            icon: const Icon(LucideIcons.rotateCcw, size: 13),
+            label: const Text('مسح', style: TextStyle(fontSize: 11.5)),
+          ),
+      ],
+    );
+
+    return Container(
+      padding: EdgeInsets.all(desktop ? 14 : 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _kBorder),
+      ),
+      child: desktop
+          ? Row(
               children: [
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    desktop ? 28 : 16,
-                    desktop ? 24 : 16,
-                    desktop ? 28 : 16,
-                    12,
+                Expanded(child: searchField),
+                const SizedBox(width: 12),
+                chips,
+              ],
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                searchField,
+                const SizedBox(height: 8),
+                chips,
+              ],
+            ),
+    );
+  }
+
+  /// عرض شبكي مرن للكمبيوتر (بطاقتان في الصف بارتفاع طبيعي بدون قص أو مساحات فارغة)
+  Widget _buildDesktopPalletPairs(
+    List<DispatchAvailablePalletEntity> pallets,
+    double pad,
+  ) {
+    final rowCount = (pallets.length / 2).ceil();
+    return SliverPadding(
+      padding: EdgeInsets.fromLTRB(pad, 0, pad, 12),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate((_, rowIndex) {
+          final firstIdx = rowIndex * 2;
+          final secondIdx = firstIdx + 1;
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: rowIndex == rowCount - 1 ? 0 : 12,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildPalletCard(pallets[firstIdx])),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: secondIdx < pallets.length
+                      ? _buildPalletCard(pallets[secondIdx])
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
+          );
+        }, childCount: rowCount),
+      ),
+    );
+  }
+
+  Widget _buildPalletCard(DispatchAvailablePalletEntity pallet) {
+    final anySelected = pallet.items.any(
+      (i) => _selectedItems.containsKey(i.palletItemId),
+    );
+    final allSelected =
+        pallet.items.isNotEmpty &&
+        pallet.items.every((i) => _selectedItems.containsKey(i.palletItemId));
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: anySelected ? AppColors.zoneC2Blue : _kBorder,
+          width: anySelected ? 1.5 : 1,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A0F172A),
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(13),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 1. رأس البطاقة: كود البالتة + الموقع + نوع البالتة + زر تحديد الكل
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color:
+                        (pallet.isMixed
+                                ? AppColors.mixedPurple
+                                : AppColors.zoneC2Blue)
+                            .withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    pallet.isMixed ? LucideIcons.boxes : LucideIcons.package,
+                    size: 18,
+                    color: pallet.isMixed
+                        ? AppColors.mixedPurple
+                        : AppColors.zoneC2Blue,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              pallet.palletReference,
+                              textDirection: TextDirection.ltr,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 13.5,
+                                color: AppColors.primaryNavy,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          if (pallet.hasCondemnationAlert)
+                            const Icon(
+                              LucideIcons.triangleAlert,
+                              size: 14,
+                              color: AppColors.dangerRed,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              pallet.slotCode,
+                              textDirection: TextDirection.ltr,
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primaryNavy,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            pallet.isMixed
+                                ? 'ميكس (${pallet.itemsCount} أصناف)'
+                                : 'موحدة',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: pallet.isMixed
+                                  ? AppColors.mixedPurple
+                                  : _kMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _toggleWholePallet(pallet),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: allSelected
+                        ? AppColors.dangerRed
+                        : AppColors.zoneC2Blue,
+                  ),
+                  child: Text(
+                    allSelected ? 'إلغاء' : 'تحديد الكل',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 18, color: Color(0xFFEDF1F5)),
+
+            // 2. قائمة الأصناف داخل البالتة (ارتفاع طبيعي تماماً)
+            ...List.generate(pallet.items.length, (index) {
+              final item = pallet.items[index];
+              final checked = _selectedItems.containsKey(item.palletItemId);
+              final controller = _controllerFor(item);
+              final expired = item.daysUntilExpiry <= 0;
+
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: index == pallet.items.length - 1 ? 0 : 8,
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: checked
+                        ? AppColors.zoneC2Blue.withValues(alpha: 0.05)
+                        : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: checked
+                          ? AppColors.zoneC2Blue.withValues(alpha: 0.35)
+                          : const Color(0xFFEAEEF4),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration: BoxDecoration(
-                          color: const Color(0xffe8efff),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Icon(icon, color: const Color(0xff2454d7)),
+                      Checkbox(
+                        value: checked,
+                        activeColor: AppColors.zoneC2Blue,
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onChanged: (val) =>
+                            _toggleItem(pallet, item, val == true),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 4),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              title,
+                              item.itemName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                color: Color(0xff14213d),
-                                fontSize: 19,
+                                fontSize: 12.5,
                                 fontWeight: FontWeight.w800,
+                                color: AppColors.primaryNavy,
                               ),
                             ),
-                            const SizedBox(height: 3),
+                            const SizedBox(height: 2),
                             Text(
-                              subtitle,
-                              style: const TextStyle(
-                                color: Color(0xff718096),
-                                fontSize: 12,
+                              expired
+                                  ? 'منتهي الصلاحية • المتاح ${_fmtQty(item.quantity)} ${item.unit.arLabel}'
+                                  : 'متبقي ${item.daysUntilExpiry} يوم • المتاح ${_fmtQty(item.quantity)} ${item.unit.arLabel}',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: expired ? AppColors.dangerRed : _kMuted,
                               ),
                             ),
                           ],
                         ),
                       ),
-                      if (desktop)
-                        Text(
-                          widget.historyOnly
-                              ? 'DISPATCH HISTORY'
-                              : 'NEW DISPATCH',
-                          style: const TextStyle(
-                            color: Color(0xff8a97ab),
-                            fontSize: 10,
-                            letterSpacing: 1.1,
-                            fontWeight: FontWeight.w800,
+                      const SizedBox(width: 8),
+                      if (checked)
+                        SizedBox(
+                          width: 78,
+                          child: TextField(
+                            controller: controller,
+                            textAlign: TextAlign.center,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 8,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.successGreen.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${_fmtQty(item.quantity)} ${item.unit.arLabel}',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.successGreen,
+                            ),
                           ),
                         ),
                     ],
                   ),
                 ),
-                Expanded(child: child),
+              );
+            }),
+
+            const Divider(height: 18, color: Color(0xFFEDF1F5)),
+
+            // 3. إجمالي البالتة (محسوب من PostgreSQL)
+            Row(
+              children: [
+                const Text(
+                  'إجمالي البالتة:',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: _kMuted,
+                  ),
+                ),
+                const Spacer(),
+                Flexible(
+                  child: Text(
+                    pallet.totalSummary,
+                    textAlign: TextAlign.end,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.successGreen,
+                    ),
+                  ),
+                ),
               ],
             ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _createScreen(DispatchState state) => _pageFrame(
-    title: 'إنشاء مستند صرف',
-    subtitle: 'حدد الأصناف والكميات المطلوبة ثم أنشئ مستند الصرف',
-    icon: Icons.outbox_rounded,
-    child: LayoutBuilder(
-      builder: (context, constraints) {
-        final desktop = constraints.maxWidth >= 900;
-
-        return Column(
-          children: [
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: desktop ? 28 : 16),
-              child: _searchField('ابحث باسم الصنف أو رقم البالتة أو الموقع'),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: ValueListenableBuilder<TextEditingValue>(
-                valueListenable: search,
-                builder: (context, searchVal, _) {
-                  final query = searchVal.text.trim().toLowerCase();
-                  final filtered = state.availableItems.where((item) {
-                    return query.isEmpty ||
-                        item.itemName.toLowerCase().contains(query) ||
-                        item.palletReference.toLowerCase().contains(query) ||
-                        item.slotCode.toLowerCase().contains(query);
-                  }).toList();
-
-                  if (state.loading && state.availableItems.isEmpty) {
-                    return const ResponsiveColdStorageShimmer(
-                      mode: ShimmerLayoutMode.tableList,
-                      itemCountOverride: 6,
-                    );
-                  }
-                  if (filtered.isEmpty) {
-                    return _emptyState(
-                      'لا توجد أصناف متاحة للصرف',
-                      'جرّب تغيير عبارة البحث أو راجع المخزون المتاح',
-                      Icons.inventory_2_outlined,
-                    );
-                  }
-                  return desktop
-                      ? _desktopItems(filtered)
-                      : _mobileItems(filtered);
-                },
-              ),
-            ),
-            _submitBar(state, desktop),
           ],
-        );
-      },
-    ),
-  );
-
-  Widget _searchField(String hint) => TextField(
-    controller: search,
-    decoration: InputDecoration(
-      hintText: hint,
-      prefixIcon: const Icon(Icons.search_rounded),
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(vertical: 15),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(15),
-        borderSide: const BorderSide(color: Color(0xffe0e7f0)),
+        ),
       ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(15),
-        borderSide: const BorderSide(color: Color(0xffe0e7f0)),
-      ),
-    ),
-  );
-
-  String _palletLabel(String value) {
-    final clean = value.trim();
-    if (clean.isEmpty) return '—';
-    if (clean.length > 18) return '${clean.substring(0, 14)}…';
-    return clean;
-  }
-
-  Map<String, List<dynamic>> _groupByPallet(List<dynamic> items) {
-    final groups = <String, List<dynamic>>{};
-    for (final item in items) {
-      groups.putIfAbsent(item.palletId as String, () => <dynamic>[]).add(item);
-    }
-    return groups;
-  }
-
-  Widget _mobileItems(List<dynamic> items) =>
-      _palletCards(items, desktop: false);
-
-  Widget _desktopItems(List<dynamic> items) =>
-      _palletCards(items, desktop: true);
-
-  Widget _palletCards(List<dynamic> items, {required bool desktop}) {
-    final groups = _groupByPallet(items);
-    final cards = groups.entries.toList();
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = desktop ? (constraints.maxWidth >= 1200 ? 3 : 2) : 1;
-        return GridView.builder(
-          padding: EdgeInsets.fromLTRB(
-            desktop ? 28 : 16,
-            4,
-            desktop ? 28 : 16,
-            18,
-          ),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: 14,
-            mainAxisSpacing: 12,
-            mainAxisExtent: _palletCardHeight(cards, desktop),
-          ),
-          itemCount: cards.length,
-          itemBuilder: (context, index) {
-            final entry = cards[index];
-            final palletItems = entry.value;
-            final first = palletItems.first;
-            final palletSelected = palletItems.any(
-              (item) => selected.contains(item.palletItemId),
-            );
-            final totals = <String, double>{};
-            for (final item in palletItems) {
-              final unit = item.unit.arLabel as String;
-              totals[unit] = (totals[unit] ?? 0) + (item.quantity as double);
-            }
-            return Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: palletSelected
-                      ? const Color(0xff315bdc)
-                      : const Color(0xffe3eaf3),
-                  width: palletSelected ? 1.5 : 1,
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x080d2345),
-                    blurRadius: 10,
-                    offset: Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: const Color(0xffedf2ff),
-                            borderRadius: BorderRadius.circular(11),
-                          ),
-                          child: const Icon(
-                            Icons.inventory_2_outlined,
-                            color: Color(0xff315bdc),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _palletLabel(first.palletReference as String),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xff17243b),
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                '${first.slotCode}  •  ${palletItems.length} ${palletItems.length == 1 ? 'صنف' : 'أصناف'}',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Color(0xff8290a4),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () => setState(() {
-                            final allSelected = palletItems.every(
-                              (item) => selected.contains(item.palletItemId),
-                            );
-                            for (final item in palletItems) {
-                              if (allSelected) {
-                                selected.remove(item.palletItemId);
-                              } else {
-                                selected.add(item.palletItemId);
-                                quantities.putIfAbsent(
-                                  item.palletItemId,
-                                  () => TextEditingController(
-                                    text: item.quantity.toString(),
-                                  ),
-                                );
-                              }
-                            }
-                          }),
-                          child: Text(
-                            palletItems.every(
-                                  (item) =>
-                                      selected.contains(item.palletItemId),
-                                )
-                                ? 'إلغاء تحديد'
-                                : 'تحديد الكل',
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 20),
-                    Expanded(
-                      child: ListView.separated(
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: palletItems.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 9),
-                        itemBuilder: (context, itemIndex) {
-                          final item = palletItems[itemIndex];
-                          final id = item.palletItemId as String;
-                          final checked = selected.contains(id);
-                          final controller = quantities.putIfAbsent(
-                            id,
-                            () => TextEditingController(
-                              text: item.quantity.toString(),
-                            ),
-                          );
-                          return Row(
-                            children: [
-                              Checkbox(
-                                value: checked,
-                                activeColor: const Color(0xff315bdc),
-                                visualDensity: VisualDensity.compact,
-                                onChanged: (value) => setState(() {
-                                  if (value == true) {
-                                    selected.add(id);
-                                  } else {
-                                    selected.remove(id);
-                                  }
-                                }),
-                              ),
-                              Expanded(
-                                child: Text(
-                                  item.itemName as String,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xff25344d),
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              if (checked)
-                                SizedBox(
-                                  width: 76,
-                                  height: 36,
-                                  child: TextField(
-                                    controller: controller,
-                                    textAlign: TextAlign.center,
-                                    keyboardType:
-                                        const TextInputType.numberWithOptions(
-                                          decimal: true,
-                                        ),
-                                    decoration: const InputDecoration(
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 5,
-                                        vertical: 8,
-                                      ),
-                                      border: OutlineInputBorder(),
-                                    ),
-                                  ),
-                                )
-                              else
-                                Text(
-                                  '${item.quantity} ${item.unit.arLabel}',
-                                  style: const TextStyle(
-                                    color: Color(0xff16834a),
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
-                    const Divider(height: 18),
-                    Row(
-                      children: [
-                        const Text(
-                          'إجمالي البالتة',
-                          style: TextStyle(
-                            color: Color(0xff75849a),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const Spacer(),
-                        Flexible(
-                          child: Text(
-                            totals.entries
-                                .map((e) => '${e.value} ${e.key}')
-                                .join('  •  '),
-                            textAlign: TextAlign.end,
-                            style: const TextStyle(
-                              color: Color(0xff16834a),
-                              fontWeight: FontWeight.w900,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
     );
   }
 
-  double _palletCardHeight(
-    List<MapEntry<String, List<dynamic>>> cards,
-    bool desktop,
-  ) {
-    // Give mixed pallets room for all their item rows while keeping a consistent card grid.
-    final maxItems = cards.fold<int>(
-      1,
-      (max, entry) => entry.value.length > max ? entry.value.length : max,
-    );
-    return (desktop ? 210.0 : 225.0) +
-        (maxItems - 1).clamp(0, 5).toDouble() * 42.0;
-  }
+  Widget _buildSubmitBar(DispatchState state, bool desktop) {
+    final selectedCount = _selectedItems.length;
+    final selectedPalletsCount = _selectedItems.values
+        .map((e) => e.palletId)
+        .toSet()
+        .length;
 
-  // ignore: unused_element
-  Widget _metaPill(IconData icon, String text) => Flexible(
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: const Color(0xfff3f6fb),
-        borderRadius: BorderRadius.circular(8),
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        desktop ? 24 : 12,
+        10,
+        desktop ? 24 : 12,
+        12,
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: const Color(0xff75849a)),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: Color(0xff65748a)),
-            ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: _kBorder)),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x100F172A),
+            blurRadius: 8,
+            offset: Offset(0, -2),
           ),
         ],
       ),
-    ),
-  );
-
-  Widget _submitBar(DispatchState state, bool desktop) => Container(
-    padding: EdgeInsets.fromLTRB(desktop ? 28 : 16, 10, desktop ? 28 : 16, 14),
-    decoration: const BoxDecoration(
-      color: Colors.white,
-      border: Border(top: BorderSide(color: Color(0xffe6ebf2))),
-    ),
-    child: Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '${selected.length} بند محدد',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xff17243b),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  selectedCount == 0
+                      ? 'لم يتم تحديد أصناف'
+                      : '$selectedCount بند ($selectedPalletsCount بالتة)',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.primaryNavy,
+                  ),
                 ),
-              ),
-              const Text(
-                'راجع الكميات قبل اعتماد المستند',
-                style: TextStyle(fontSize: 11, color: Color(0xff8491a4)),
-              ),
-            ],
-          ),
-        ),
-        SizedBox(
-          height: 48,
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xff173d9b),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(13),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+                const SizedBox(height: 2),
+                const Text(
+                  'جهة الصرف: منفذ بيع العاملين',
+                  style: TextStyle(fontSize: 11, color: _kMuted),
+                ),
+              ],
             ),
-            onPressed: state.submitting || selected.isEmpty
+          ),
+          if (selectedCount > 0) ...[
+            TextButton(
+              onPressed: state.submitting ? null : _clearSelections,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.dangerRed,
+                visualDensity: VisualDensity.compact,
+              ),
+              child: const Text(
+                'إلغاء',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
+          FilledButton.icon(
+            onPressed: (state.submitting || selectedCount == 0)
                 ? null
-                : () => _submit(state),
+                : _submit,
             icon: state.submitting
                 ? const SizedBox(
-                    width: 17,
-                    height: 17,
+                    width: 16,
+                    height: 16,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       color: Colors.white,
                     ),
                   )
-                : const Icon(Icons.outbox_rounded, size: 18),
-            label: const Text('إنشاء مستند الصرف'),
-          ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _historyScreen(DispatchState state) => _pageFrame(
-    title: 'سجل مستندات الصرف',
-    subtitle: 'راجع المستندات السابقة وتفاصيل الأصناف وحالات العكس',
-    icon: Icons.receipt_long_rounded,
-    child: LayoutBuilder(
-      builder: (context, constraints) {
-        final desktop = constraints.maxWidth >= 900;
-        return RefreshIndicator(
-          onRefresh: () => context.read<DispatchCubit>().load(),
-          child: state.loading && state.documents.isEmpty
-              ? const ResponsiveColdStorageShimmer(
-                  mode: ShimmerLayoutMode.tableList,
-                  itemCountOverride: 5,
-                )
-              : state.documents.isEmpty
-              ? _emptyState(
-                  'لا توجد مستندات صرف حتى الآن',
-                  'ستظهر هنا المستندات التي يتم إنشاؤها',
-                  Icons.receipt_long_outlined,
-                )
-              : desktop
-              ? _desktopHistory(state)
-              : _mobileHistory(state),
-        );
-      },
-    ),
-  );
-
-  Widget _mobileHistory(DispatchState state) => ListView.separated(
-    physics: const AlwaysScrollableScrollPhysics(),
-    padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-    itemCount: state.documents.length,
-    separatorBuilder: (_, __) => const SizedBox(height: 10),
-    itemBuilder: (context, index) =>
-        _documentCard(state, state.documents[index]),
-  );
-
-  Widget _desktopHistory(DispatchState state) => ListView(
-    physics: const AlwaysScrollableScrollPhysics(),
-    padding: const EdgeInsets.fromLTRB(28, 4, 28, 20),
-    children: [
-      Material(
-        color: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: Color(0xffe4eaf2)),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Text(
-                      'رقم المستند',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      'التاريخ',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      'الحالة',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 1,
-                    child: Text(
-                      'التفاصيل',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            ...state.documents.map((doc) => _desktopDocumentRow(state, doc)),
-          ],
-        ),
-      ),
-    ],
-  );
-
-  Widget _desktopDocumentRow(DispatchState state, dynamic doc) => Theme(
-    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-    child: ExpansionTile(
-      title: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Text(
-              doc.palletReferences.isEmpty
-                  ? doc.number
-                  : doc.palletReferences.map((e) => _palletLabel(e)).join('، '),
+                : const Icon(LucideIcons.truck, size: 16),
+            label: Text(
+              desktop ? 'إنشاء مستند الصرف' : 'اعتماد الصرف',
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.zoneC2Blue,
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(
+                horizontal: desktop ? 18 : 14,
+                vertical: 12,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(11),
+              ),
+            ),
           ),
-          Expanded(flex: 2, child: Text(_date(doc.createdAt))),
-          Expanded(flex: 2, child: _statusChip(doc.status == 'reversed')),
-          const Expanded(flex: 1, child: Text('عرض البنود')),
         ],
-      ),
-      onExpansionChanged: (open) {
-        if (open) context.read<DispatchCubit>().loadDetails(doc.id);
-      },
-      children: _documentDetails(state, doc),
-    ),
-  );
-
-  Widget _documentCard(DispatchState state, dynamic doc) {
-    final reversed = doc.status == 'reversed';
-    return Material(
-      color: Colors.white,
-      elevation: 1,
-      shadowColor: const Color(0x140d2345),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(17),
-        side: const BorderSide(color: Color(0xffe6ebf2)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-          leading: Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: reversed
-                  ? const Color(0xfffff1df)
-                  : const Color(0xffe9f7ef),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              reversed ? Icons.undo_rounded : Icons.receipt_long_rounded,
-              color: reversed
-                  ? const Color(0xffb76b12)
-                  : const Color(0xff16834a),
-            ),
-          ),
-          title: Text(
-            doc.palletReferences.isEmpty
-                ? doc.number
-                : doc.palletReferences.map((e) => _palletLabel(e)).join('، '),
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 14,
-              color: Color(0xff17243b),
-            ),
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Row(
-              children: [
-                Text(
-                  _date(doc.createdAt),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xff8793a5),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    doc.number,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Color(0xffa0aaba),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _statusChip(reversed),
-              ],
-            ),
-          ),
-          onExpansionChanged: (open) {
-            if (open) context.read<DispatchCubit>().loadDetails(doc.id);
-          },
-          children: _documentDetails(state, doc),
-        ),
       ),
     );
   }
 
-  List<Widget> _documentDetails(DispatchState state, dynamic doc) {
-    final reversed = doc.status == 'reversed';
-    final lines = state.details[doc.id] ?? [];
-    return [
-      if (lines.isEmpty)
-        const Padding(
-          padding: EdgeInsets.all(12),
-          child: Text(
-            'جارٍ تحميل تفاصيل المستند أو لا توجد بنود',
-            style: TextStyle(color: Color(0xff8793a5)),
-          ),
-        )
-      else
-        ...lines.map(
-          (line) => Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xffedf0f5))),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        line.itemName,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '${_palletLabel(line.palletReference)} • ${line.slotCode}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xff8793a5),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  '${line.quantity} ${line.unit}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xff173d9b),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      if (!reversed)
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: () => _askReverse(doc.id),
-            icon: const Icon(Icons.undo_rounded, color: Color(0xffb42318)),
-            label: const Text(
-              'عكس المستند',
-              style: TextStyle(
-                color: Color(0xffb42318),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
-    ];
-  }
-
-  Widget _statusChip(bool reversed) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-    decoration: BoxDecoration(
-      color: reversed ? const Color(0xfffff1df) : const Color(0xffe9f7ef),
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: Text(
-      reversed ? 'معكوس' : 'مكتمل',
-      style: TextStyle(
-        color: reversed ? const Color(0xffa45d0a) : const Color(0xff16834a),
-        fontSize: 11,
-        fontWeight: FontWeight.w800,
-      ),
-    ),
-  );
-
-  String _date(DateTime date) =>
-      '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
-
-  Widget _emptyState(String title, String subtitle, IconData icon) => Center(
+  Widget _buildEmptyState(
+    DispatchCubit cubit,
+    DispatchAvailablePalletsFilter filter,
+  ) => Center(
     child: Padding(
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.all(24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 48, color: const Color(0xffa8b4c5)),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              color: Color(0xff344054),
+          Container(
+            width: 58,
+            height: 58,
+            decoration: const BoxDecoration(
+              color: Color(0xFFEAF0F6),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              LucideIcons.packageOpen,
+              size: 26,
+              color: AppColors.primaryNavy,
             ),
           ),
-          const SizedBox(height: 5),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Color(0xff8793a5), fontSize: 12),
+          const SizedBox(height: 12),
+          const Text(
+            'لا توجد بالتات متاحة للصرف',
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w800,
+              color: AppColors.primaryNavy,
+            ),
           ),
+          const SizedBox(height: 4),
+          const Text(
+            'تأكد من كلمة البحث أو الفلاتر المحددة أو اسحب للأسفل للتحديث.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: _kMuted),
+          ),
+          if (filter.hasActiveFilters) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _clearFilters(cubit),
+              icon: const Icon(LucideIcons.rotateCcw, size: 15),
+              label: const Text('مسح الفلاتر'),
+            ),
+          ],
         ],
       ),
     ),
   );
-
-  Future<void> _submit(DispatchState state) async {
-    final lines = <DispatchDraftLine>[];
-    for (final item in state.availableItems.where(
-      (e) => selected.contains(e.palletItemId),
-    )) {
-      final quantity = double.tryParse(
-        quantities[item.palletItemId]?.text.trim() ?? '',
-      );
-      if (quantity == null || quantity <= 0 || quantity > item.quantity) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('راجع كمية الصرف للصنف ${item.itemName}')),
-        );
-        return;
-      }
-      lines.add(
-        DispatchDraftLine(
-          item: item,
-          quantity: quantity,
-          method: quantity == item.quantity ? 'full_pallet' : 'custom_quantity',
-        ),
-      );
-    }
-    await context.read<DispatchCubit>().create(lines);
-  }
-
-  Future<void> _askReverse(String id) async {
-    final controller = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('عكس مستند الصرف'),
-          content: TextField(
-            controller: controller,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'سبب العكس',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('إلغاء'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.pop(ctx, controller.text.trim().isNotEmpty),
-              child: const Text('تأكيد العكس'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (ok == true && mounted) {
-      await context.read<DispatchCubit>().reverse(id, controller.text);
-    }
-    controller.dispose();
-  }
 }

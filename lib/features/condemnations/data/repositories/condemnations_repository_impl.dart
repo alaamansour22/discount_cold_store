@@ -9,38 +9,22 @@ class CondemnationsRepositoryImpl implements ICondemnationsRepository {
   CondemnationsRepositoryImpl(this._remoteDataSource);
 
   @override
-  Future<
-    ({
-      List<CondemnationAlertItemEntity> alertItems,
-      int globalThresholdDays,
-      int userCustomAlertDays,
-    })
-  >
-  getActiveCondemnationAlerts() async {
+  Future<CondemnationAlertsPageEntity> getActiveAlertsPaginated(
+    CondemnationAlertsFilter filter,
+  ) async {
     try {
-      final dto = await _remoteDataSource.fetchActiveAlertsAndThresholds();
-      return (
-        alertItems: dto.alertItems,
-        globalThresholdDays: dto.globalThresholdDays,
-        userCustomAlertDays: dto.userCustomAlertDays,
-      );
+      return await _remoteDataSource.fetchAlertsPaginated(filter);
     } catch (e) {
       throw ErrorHandler.handle(e);
     }
   }
 
   @override
-  Future<List<CondemnationHistoryRecordEntity>> getCondemnationRecords({
-    DateTime? fromDate,
-    DateTime? toDate,
-    int limit = 300,
-  }) async {
+  Future<CondemnationHistoryPageEntity> getCondemnationHistoryPaginated(
+    CondemnationHistoryFilter filter,
+  ) async {
     try {
-      return await _remoteDataSource.fetchCondemnationHistory(
-        fromDate: fromDate,
-        toDate: toDate,
-        limit: limit,
-      );
+      return await _remoteDataSource.fetchHistoryPaginated(filter);
     } catch (e) {
       throw ErrorHandler.handle(e);
     }

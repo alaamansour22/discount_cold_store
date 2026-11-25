@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart' as intl;
@@ -6,6 +8,8 @@ import 'package:pdf/pdf.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/cold_storage_pdf_service.dart';
+import '../../../../core/widgets/app_pagination_bar.dart';
+import '../../../../core/widgets/app_pro_data_table.dart';
 import '../../../../core/widgets/responsive_shimmer.dart';
 import '../../domain/entities/deleted_record_entity.dart';
 import '../cubit/deleted_records_cubit.dart';
@@ -18,84 +22,152 @@ class DeletedRecordsPage extends StatefulWidget {
 }
 
 class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
-  final ValueNotifier<String> _searchNotifier = ValueNotifier<String>('');
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
+  bool _isExportingPdf = false;
 
   @override
   void dispose() {
-    _searchNotifier.dispose();
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
   String _fmtDate(DateTime d) => intl.DateFormat('yyyy-MM-dd').format(d);
+
   String _fmtDateTime(DateTime d) =>
       intl.DateFormat('yyyy-MM-dd  HH:mm').format(d);
 
   String _fmtQty(double v) =>
       v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
 
-  Future<void> _exportPdf(List<DeletedRecordEntity> records) async {
-    final rows = records.map((r) {
-      final itemsText = r.items.isEmpty
-          ? '—'
-          : r.items
-                .map((i) => '${i.itemName} (${_fmtQty(i.quantity)} ${i.unit.arLabel})')
-                .join(' | ');
-      return <String>[
-        r.reason,
-        r.deletedByName,
-        r.slotCode,
-        itemsText,
-        r.palletReference,
-        r.actionKind.arLabel,
-        _fmtDateTime(r.deletedAt),
-      ];
-    }).toList();
+  Color _kindColor(DeletedRecordEntity r) =>
+      r.isFullPallet ? AppColors.dangerRed : AppColors.warningAmber;
 
-    final fullCount = records.where((e) => e.isFullPallet).length;
-    final itemCount = records.length - fullCount;
-
-    await ColdStoragePdfService.printCustomTableReport(
-      reportTitle: 'سجل المحذوفات (التسكين الخاطئ) — ثلاجة المخفض',
-      reportSubtitle: 'إجمالي عمليات الحذف المسجلة: ${records.length}',
-      headers: const [
-        'سبب الحذف',
-        'المنفذ',
-        'الموقع',
-        'الأصناف والكميات',
-        'رقم البالتة',
-        'نوع الحذف',
-        'التاريخ والوقت',
-      ],
-      rows: rows,
-      fileName: 'deleted_records_audit_log.pdf',
-      headerColor: PdfColors.red900,
-      summaryMetrics: {
-        'إجمالي السجلات': '${records.length}',
-        'بالتات محذوفة': '$fullCount',
-        'أصناف محذوفة': '$itemCount',
-      },
-    );
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) {
+        return;
+      }
+      final cubit = context.read<DeletedRecordsCubit>();
+      cubit.updateFilter(cubit.state.filter.copyWith(search: value.trim()));
+    });
   }
 
-  List<DeletedRecordEntity> _filterLocal(
-    List<DeletedRecordEntity> records,
-    String query,
-  ) {
-    final q = query.trim().toLowerCase();
-    if (q.isEmpty) return records;
-    return records.where((r) {
-      final matchesItems = r.items.any(
-        (i) => i.itemName.toLowerCase().contains(q),
+  void _clearAllFilters(DeletedRecordsCubit cubit) {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    cubit.clearFilters();
+  }
+
+  Future<void> _exportPdf(DeletedRecordsCubit cubit) async {
+    if (_isExportingPdf) {
+      return;
+    }
+    setState(() => _isExportingPdf = true);
+
+    try {
+      final exported = await cubit.fetchForExport();
+      final records = exported.page.items;
+      final summary = exported.summary;
+
+      final rows = records.map((r) {
+        final itemsText = r.items.isEmpty
+            ? '—'
+            : r.items
+                  .map(
+                    (i) =>
+                        '${i.itemName} (${_fmtQty(i.quantity)} ${i.unit.arLabel})',
+                  )
+                  .join(' | ');
+        return <String>[
+          r.reason,
+          r.deletedByName,
+          r.slotCode,
+          itemsText,
+          r.palletReference,
+          r.actionKind.arLabel,
+          _fmtDateTime(r.deletedAt),
+        ];
+      }).toList();
+
+      await ColdStoragePdfService.printCustomTableReport(
+        reportTitle: 'سجل المحذوفات (التسكين الخاطئ) — ثلاجة المخفض',
+        reportSubtitle: 'إجمالي عمليات الحذف المسجلة: ${summary.totalDeletions}',
+        headers: const [
+          'سبب الحذف',
+          'المنفذ',
+          'الموقع',
+          'الأصناف والكميات',
+          'رقم البالتة',
+          'نوع الحذف',
+          'التاريخ والوقت',
+        ],
+        rows: rows,
+        fileName: 'deleted_records_audit_log.pdf',
+        headerColor: PdfColors.red900,
+        summaryMetrics: {
+          'إجمالي السجلات': '${summary.totalDeletions}',
+          'بالتات محذوفة': '${summary.fullPalletCount}',
+          'أصناف محذوفة': '${summary.singleItemCount}',
+        },
       );
-      return matchesItems ||
-          r.palletReference.toLowerCase().contains(q) ||
-          r.slotCode.toLowerCase().contains(q) ||
-          r.reason.toLowerCase().contains(q) ||
-          r.deletedByName.toLowerCase().contains(q) ||
-          r.actionKind.arLabel.toLowerCase().contains(q);
-    }).toList();
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('تعذر تصدير ملف PDF: $e'),
+            backgroundColor: AppColors.dangerRed,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } finally {
+      if (mounted) {
+        setState(() => _isExportingPdf = false);
+      }
+    }
+  }
+
+  Future<void> _pickDate(
+    BuildContext context,
+    DeletedRecordsCubit cubit,
+    DeletedRecordsFilter filter,
+    bool isFrom,
+  ) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: (isFrom ? filter.fromDate : filter.toDate) ?? DateTime.now(),
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2035),
+      locale: const Locale('ar', 'EG'),
+      helpText: isFrom ? 'اختر تاريخ البداية' : 'اختر تاريخ النهاية',
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+
+    var nextFrom = filter.fromDate;
+    var nextTo = filter.toDate;
+    if (isFrom) {
+      nextFrom = picked;
+      if (nextTo != null && nextFrom.isAfter(nextTo)) {
+        nextTo = picked;
+      }
+    } else {
+      nextTo = picked;
+      if (nextFrom != null && nextTo.isBefore(nextFrom)) {
+        nextFrom = picked;
+      }
+    }
+
+    await cubit.updateFilter(
+      filter.copyWith(fromDate: nextFrom, toDate: nextTo),
+    );
   }
 
   @override
@@ -104,7 +176,12 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
       listenWhen: (prev, curr) =>
           prev.failure != curr.failure && curr.failure != null,
       listener: (context, state) {
-        if (state.failure == null) return;
+        final isOffstage =
+            context.findAncestorWidgetOfExactType<Offstage>()?.offstage ??
+            false;
+        if (isOffstage || state.failure == null) {
+          return;
+        }
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(
@@ -116,70 +193,73 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
           );
       },
       builder: (context, state) {
-        if (state.isLoading) {
+        if (!state.initialized && state.isLoading) {
           return const ResponsiveColdStorageShimmer(
             mode: ShimmerLayoutMode.tableList,
           );
         }
 
         final cubit = context.read<DeletedRecordsCubit>();
+        final pageData = state.data.page;
+        final summary = state.data.summary;
+        final records = pageData.items;
+
         return Directionality(
           textDirection: TextDirection.rtl,
           child: LayoutBuilder(
             builder: (context, constraints) {
               final isWide = constraints.maxWidth >= 900;
-              final pageWidth = constraints.maxWidth > 1500
-                  ? 1440.0
-                  : constraints.maxWidth;
-
-              return Align(
-                alignment: Alignment.topCenter,
-                child: SizedBox(
-                  width: pageWidth,
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isWide ? 24 : 14,
-                      vertical: isWide ? 20 : 12,
-                    ),
-                    child: ValueListenableBuilder<String>(
-                      valueListenable: _searchNotifier,
-                      builder: (context, query, _) {
-                        final filtered = _filterLocal(state.records, query);
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _buildFiltersCard(context, cubit, state, isWide),
-                            const SizedBox(height: 12),
-                            _buildHeaderRow(
-                              filtered,
-                              cubit,
-                              isWide,
-                            ),
-                            const SizedBox(height: 10),
-                            Expanded(
-                              child: RefreshIndicator(
-                                onRefresh: () => cubit.loadRecords(),
-                                child: filtered.isEmpty
-                                    ? ListView(
-                                        physics:
-                                            const AlwaysScrollableScrollPhysics(),
-                                        children: [
-                                          SizedBox(
-                                            height: 260,
-                                            child: _buildEmptyState(),
-                                          ),
-                                        ],
-                                      )
-                                    : isWide
-                                    ? _buildDesktopTable(filtered)
-                                    : _buildMobileList(filtered),
+              return Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isWide ? 24 : 14,
+                  vertical: isWide ? 20 : 12,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildFiltersCard(context, cubit, state.filter, isWide),
+                    const SizedBox(height: 12),
+                    _buildHeaderRow(summary, cubit, isWide),
+                    if (state.isLoading) ...[
+                      const SizedBox(height: 8),
+                      const LinearProgressIndicator(minHeight: 2.5),
+                    ],
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: records.isEmpty
+                          ? RefreshIndicator(
+                              onRefresh: () => cubit.loadRecords(),
+                              child: ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: [
+                                  SizedBox(
+                                    height: 260,
+                                    child: _buildEmptyState(
+                                      cubit,
+                                      state.filter,
+                                    ),
+                                  ),
+                                ],
                               ),
+                            )
+                          : isWide
+                          ? _buildDesktopTable(context, records, summary)
+                          : RefreshIndicator(
+                              onRefresh: () => cubit.loadRecords(),
+                              child: _buildMobileList(records),
                             ),
-                          ],
-                        );
-                      },
                     ),
-                  ),
+                    if (pageData.totalCount > 0) ...[
+                      const SizedBox(height: 10),
+                      AppPaginationBar(
+                        pageData: pageData,
+                        isLoading: state.isLoading,
+                        pageSizeOptions: const [15, 20, 50],
+                        onPageChanged: cubit.goToPage,
+                        onPageSizeChanged: cubit.changePageSize,
+                      ),
+                    ],
+                  ],
                 ),
               );
             },
@@ -192,17 +272,11 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
   Widget _buildFiltersCard(
     BuildContext context,
     DeletedRecordsCubit cubit,
-    DeletedRecordsState state,
+    DeletedRecordsFilter filter,
     bool isWide,
   ) {
-    final hasFilters =
-        state.fromDate != null ||
-        state.toDate != null ||
-        state.kindFilter != null ||
-        _searchNotifier.value.isNotEmpty;
-
     return Container(
-      padding: EdgeInsets.all(isWide ? 16 : 12),
+      padding: EdgeInsets.all(isWide ? 14 : 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -211,31 +285,35 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextField(
-            controller: _searchController,
-            onChanged: (v) => _searchNotifier.value = v,
-            decoration: InputDecoration(
-              hintText: 'ابحث بالصنف أو رقم البالتة أو الموقع أو السبب أو المنفذ',
-              prefixIcon: const Icon(LucideIcons.search, size: 18),
-              suffixIcon: _searchNotifier.value.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(LucideIcons.x, size: 17),
-                      onPressed: () {
-                        _searchController.clear();
-                        _searchNotifier.value = '';
-                      },
-                    ),
-              isDense: true,
-              filled: true,
-              fillColor: const Color(0xFFF8FAFC),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.borderLight),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.borderLight),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _searchController,
+            builder: (_, val, _) => TextField(
+              controller: _searchController,
+              onChanged: _onSearchChanged,
+              decoration: InputDecoration(
+                hintText:
+                    'ابحث بالصنف أو رقم البالتة أو الموقع أو السبب أو المنفذ',
+                prefixIcon: const Icon(LucideIcons.search, size: 18),
+                suffixIcon: val.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(LucideIcons.x, size: 17),
+                        onPressed: () {
+                          _searchController.clear();
+                          _onSearchChanged('');
+                        },
+                      ),
+                isDense: true,
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.borderLight),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.borderLight),
+                ),
               ),
             ),
           ),
@@ -247,74 +325,63 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
             children: [
               _kindChip(
                 label: 'الكل',
-                selected: state.kindFilter == null,
-                onTap: () => cubit.applyFilters(
-                  fromDate: state.fromDate,
-                  toDate: state.toDate,
-                  clearKindFilter: true,
-                ),
+                selected: filter.kind == null,
+                onTap: () => cubit.updateFilter(filter.copyWith(clearKind: true)),
               ),
               _kindChip(
                 label: 'بالتة كاملة',
-                selected: state.kindFilter == DeletedActionKind.fullPallet,
-                onTap: () => cubit.applyFilters(
-                  fromDate: state.fromDate,
-                  toDate: state.toDate,
-                  kindFilter: DeletedActionKind.fullPallet,
+                selected: filter.kind == DeletedActionKind.fullPallet,
+                onTap: () => cubit.updateFilter(
+                  filter.copyWith(kind: DeletedActionKind.fullPallet),
                 ),
               ),
               _kindChip(
                 label: 'صنف محدد',
-                selected: state.kindFilter == DeletedActionKind.singleItem,
-                onTap: () => cubit.applyFilters(
-                  fromDate: state.fromDate,
-                  toDate: state.toDate,
-                  kindFilter: DeletedActionKind.singleItem,
+                selected: filter.kind == DeletedActionKind.singleItem,
+                onTap: () => cubit.updateFilter(
+                  filter.copyWith(kind: DeletedActionKind.singleItem),
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: () => _pickDate(context, cubit, state, true),
-                icon: const Icon(LucideIcons.calendarDays, size: 15),
-                label: Text(
-                  state.fromDate == null ? 'من تاريخ' : _fmtDate(state.fromDate!),
-                  style: const TextStyle(fontSize: 12),
-                ),
-                style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  foregroundColor: AppColors.primaryNavy,
-                  side: const BorderSide(color: AppColors.borderLight),
-                ),
+              _dateFilterButton(
+                label: filter.fromDate == null
+                    ? 'من تاريخ'
+                    : _fmtDate(filter.fromDate!),
+                icon: LucideIcons.calendarDays,
+                onTap: () => _pickDate(context, cubit, filter, true),
               ),
-              OutlinedButton.icon(
-                onPressed: () => _pickDate(context, cubit, state, false),
-                icon: const Icon(LucideIcons.calendarCheck, size: 15),
-                label: Text(
-                  state.toDate == null ? 'إلى تاريخ' : _fmtDate(state.toDate!),
-                  style: const TextStyle(fontSize: 12),
-                ),
-                style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  foregroundColor: AppColors.primaryNavy,
-                  side: const BorderSide(color: AppColors.borderLight),
-                ),
+              _dateFilterButton(
+                label: filter.toDate == null
+                    ? 'إلى تاريخ'
+                    : _fmtDate(filter.toDate!),
+                icon: LucideIcons.calendarCheck,
+                onTap: () => _pickDate(context, cubit, filter, false),
               ),
-              if (hasFilters)
+              if (filter.hasActiveFilters)
                 TextButton.icon(
-                  onPressed: () {
-                    _searchController.clear();
-                    _searchNotifier.value = '';
-                    cubit.applyFilters(
-                      clearFromDate: true,
-                      clearToDate: true,
-                      clearKindFilter: true,
-                    );
-                  },
+                  onPressed: () => _clearAllFilters(cubit),
                   icon: const Icon(LucideIcons.rotateCcw, size: 14),
                   label: const Text('مسح', style: TextStyle(fontSize: 12)),
                 ),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _dateFilterButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 15),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      style: OutlinedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        foregroundColor: AppColors.primaryNavy,
+        side: const BorderSide(color: AppColors.borderLight),
       ),
     );
   }
@@ -343,28 +410,8 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
     );
   }
 
-  Future<void> _pickDate(
-    BuildContext context,
-    DeletedRecordsCubit cubit,
-    DeletedRecordsState state,
-    bool isFrom,
-  ) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: (isFrom ? state.fromDate : state.toDate) ?? DateTime.now(),
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2035),
-    );
-    if (picked == null) return;
-    await cubit.applyFilters(
-      fromDate: isFrom ? picked : state.fromDate,
-      toDate: isFrom ? state.toDate : picked,
-      kindFilter: state.kindFilter,
-    );
-  }
-
   Widget _buildHeaderRow(
-    List<DeletedRecordEntity> records,
+    DeletedRecordsSummaryEntity summary,
     DeletedRecordsCubit cubit,
     bool isWide,
   ) {
@@ -381,21 +428,19 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
           ),
         ),
         const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-          decoration: BoxDecoration(
-            color: AppColors.dangerRed.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(20),
+        _headerBadge('${summary.totalDeletions}', AppColors.dangerRed),
+        if (isWide) ...[
+          const SizedBox(width: 6),
+          _headerBadge(
+            '${summary.fullPalletCount} بالتة',
+            AppColors.dangerRed,
           ),
-          child: Text(
-            '${records.length}',
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: AppColors.dangerRed,
-            ),
+          const SizedBox(width: 6),
+          _headerBadge(
+            '${summary.singleItemCount} صنف',
+            AppColors.warningAmber,
           ),
-        ),
+        ],
         const Spacer(),
         IconButton.filledTonal(
           tooltip: 'تحديث',
@@ -404,9 +449,22 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
         ),
         const SizedBox(width: 8),
         FilledButton.icon(
-          onPressed: records.isEmpty ? null : () => _exportPdf(records),
-          icon: const Icon(LucideIcons.fileDown, size: 16),
-          label: Text(isWide ? 'تصدير PDF' : 'PDF'),
+          onPressed: (summary.totalDeletions == 0 || _isExportingPdf)
+              ? null
+              : () => _exportPdf(cubit),
+          icon: _isExportingPdf
+              ? const SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(LucideIcons.fileDown, size: 16),
+          label: Text(
+            _isExportingPdf ? 'تجهيز...' : (isWide ? 'تصدير PDF' : 'PDF'),
+          ),
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.primaryNavy,
             foregroundColor: Colors.white,
@@ -420,20 +478,34 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
     );
   }
 
+  Widget _headerBadge(String text, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontSize: 11.5,
+        fontWeight: FontWeight.w800,
+        color: color,
+      ),
+    ),
+  );
+
   Widget _buildMobileList(List<DeletedRecordEntity> records) {
     return ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: 18),
+      padding: const EdgeInsets.only(bottom: 12),
       itemCount: records.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (_, index) => _recordCard(records[index]),
     );
   }
 
   Widget _recordCard(DeletedRecordEntity record) {
-    final badgeColor = record.isFullPallet
-        ? AppColors.dangerRed
-        : AppColors.warningAmber;
+    final badgeColor = _kindColor(record);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -447,34 +519,7 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: badgeColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      record.isFullPallet
-                          ? LucideIcons.packageX
-                          : LucideIcons.trash2,
-                      size: 13,
-                      color: badgeColor,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      record.actionKind.arLabel,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: badgeColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              _actionBadge(record, badgeColor),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -493,56 +538,7 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
             ],
           ),
           const SizedBox(height: 10),
-          if (record.items.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.borderLight),
-              ),
-              child: Column(
-                children: List.generate(record.items.length, (i) {
-                  final item = record.items[i];
-                  return Padding(
-                    padding: EdgeInsets.only(
-                      bottom: i == record.items.length - 1 ? 0 : 6,
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          LucideIcons.package,
-                          size: 14,
-                          color: AppColors.textSecondary,
-                        ),
-                        const SizedBox(width: 7),
-                        Expanded(
-                          child: Text(
-                            item.itemName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.primaryNavy,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${_fmtQty(item.quantity)} ${item.unit.arLabel}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.dangerRed,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
-              ),
-            ),
+          if (record.items.isNotEmpty) _itemsListBox(record.items),
           const SizedBox(height: 9),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -589,6 +585,89 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
     );
   }
 
+  Widget _actionBadge(DeletedRecordEntity record, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            record.isFullPallet ? LucideIcons.packageX : LucideIcons.trash2,
+            size: 13,
+            color: color,
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              record.actionKind.arLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _itemsListBox(List<DeletedItemSnapshot> items) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderLight),
+      ),
+      child: Column(
+        children: List.generate(items.length, (i) {
+          final item = items[i];
+          return Padding(
+            padding: EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 6),
+            child: Row(
+              children: [
+                const Icon(
+                  LucideIcons.package,
+                  size: 14,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    item.itemName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primaryNavy,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${_fmtQty(item.quantity)} ${item.unit.arLabel}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.dangerRed,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
   Widget _metaItem(IconData icon, String text) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
@@ -605,103 +684,235 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
     ],
   );
 
-  Widget _buildDesktopTable(List<DeletedRecordEntity> records) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: AppColors.borderLight),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(15),
-        child: SingleChildScrollView(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(const Color(0xFFF3F6FB)),
-              headingTextStyle: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-                color: AppColors.primaryNavy,
-              ),
-              columns: const [
-                DataColumn(label: Text('التاريخ والوقت')),
-                DataColumn(label: Text('نوع الحذف')),
-                DataColumn(label: Text('رقم البالتة')),
-                DataColumn(label: Text('الأصناف المحذوفة')),
-                DataColumn(label: Text('الموقع')),
-                DataColumn(label: Text('السبب')),
-                DataColumn(label: Text('المنفذ')),
-              ],
-              rows: records.map((r) {
-                final color = r.isFullPallet
-                    ? AppColors.dangerRed
-                    : AppColors.warningAmber;
-                final itemsSummary = r.items
-                    .map(
-                      (i) =>
-                          '${i.itemName} (${_fmtQty(i.quantity)} ${i.unit.arLabel})',
-                    )
-                    .join('\n');
-                return DataRow(
-                  cells: [
-                    DataCell(Text(_fmtDateTime(r.deletedAt))),
-                    DataCell(
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          r.actionKind.arLabel,
-                          style: TextStyle(
-                            color: color,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 11.5,
-                          ),
-                        ),
-                      ),
-                    ),
-                    DataCell(
-                      Text(r.palletReference, textDirection: TextDirection.ltr),
-                    ),
-                    DataCell(
-                      SizedBox(
-                        width: 240,
-                        child: Text(
-                          itemsSummary.isEmpty ? '—' : itemsSummary,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    DataCell(Text(r.slotCode)),
-                    DataCell(
-                      SizedBox(
-                        width: 180,
-                        child: Text(
-                          r.reason,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    DataCell(Text(r.deletedByName)),
-                  ],
-                );
-              }).toList(),
+  Widget _buildDesktopTable(
+    BuildContext context,
+    List<DeletedRecordEntity> records,
+    DeletedRecordsSummaryEntity summary,
+  ) {
+    return AppProDataTable<DeletedRecordEntity>(
+      items: records,
+      expandHeight: true,
+      minTableWidth: 940,
+      footerLabel:
+          'إجمالي السجلات المحذوفة: ${summary.totalDeletions} عملية (${summary.fullPalletCount} بالتة • ${summary.singleItemCount} صنف)',
+      onRowTap: (record) => _showRecordDetailsDialog(context, record),
+      columns: [
+        AppProTableColumn(
+          label: 'التاريخ والوقت',
+          fixedWidth: 132,
+          cellBuilder: (_, r, _) => Text(
+            _fmtDateTime(r.deletedAt),
+            textDirection: TextDirection.ltr,
+            style: const TextStyle(
+              fontSize: 11.5,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w700,
             ),
           ),
+        ),
+        AppProTableColumn(
+          label: 'نوع الحذف',
+          fixedWidth: 132,
+          cellBuilder: (_, r, _) => _actionBadge(r, _kindColor(r)),
+        ),
+        AppProTableColumn(
+          label: 'رقم البالتة',
+          fixedWidth: 142,
+          cellBuilder: (_, r, _) => Text(
+            r.palletReference,
+            textDirection: TextDirection.ltr,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+              color: AppColors.primaryNavy,
+            ),
+          ),
+        ),
+        AppProTableColumn(
+          label: 'الأصناف المحذوفة',
+          flex: 3,
+          cellBuilder: (_, r, _) {
+            if (r.items.isEmpty) {
+              return const Text('—');
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: r.items.asMap().entries.map((entry) {
+                final item = entry.value;
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: entry.key == r.items.length - 1 ? 0 : 4,
+                  ),
+                  child: Text(
+                    '${item.itemName} (${_fmtQty(item.quantity)} ${item.unit.arLabel})',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primaryNavy,
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
+        AppProTableColumn(
+          label: 'الموقع',
+          fixedWidth: 108,
+          alignment: Alignment.center,
+          cellBuilder: (_, r, _) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              r.slotCode,
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 11.5,
+                color: AppColors.primaryNavy,
+              ),
+            ),
+          ),
+        ),
+        AppProTableColumn(
+          label: 'السبب',
+          flex: 2,
+          cellBuilder: (_, r, _) => Text(
+            r.reason,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+        AppProTableColumn(
+          label: 'المنفذ',
+          fixedWidth: 120,
+          cellBuilder: (_, r, _) => Text(
+            r.deletedByName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: AppColors.primaryNavy,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showRecordDetailsDialog(
+    BuildContext context,
+    DeletedRecordEntity record,
+  ) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: Row(
+            children: [
+              const Icon(LucideIcons.trash2, color: AppColors.dangerRed),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      record.actionKind.arLabel,
+                      style: const TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                    Text(
+                      '${record.palletReference} • الموقع: ${record.slotCode}',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                icon: const Icon(LucideIcons.x, size: 18),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (record.items.isNotEmpty)
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 280),
+                    child: SingleChildScrollView(
+                      child: _itemsListBox(record.items),
+                    ),
+                  ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.dangerRed.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    'السبب: ${record.reason}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primaryNavy,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 6,
+                  children: [
+                    _metaItem(LucideIcons.userRound, record.deletedByName),
+                    _metaItem(
+                      LucideIcons.clock3,
+                      _fmtDateTime(record.deletedAt),
+                    ),
+                    if (record.sourceEntity != null)
+                      _metaItem(
+                        LucideIcons.building2,
+                        record.sourceEntity!.arLabel,
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('إغلاق'),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildEmptyState() => Center(
+  Widget _buildEmptyState(
+    DeletedRecordsCubit cubit,
+    DeletedRecordsFilter filter,
+  ) => Center(
     child: Container(
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
@@ -709,24 +920,36 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.borderLight),
       ),
-      child: const Column(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(LucideIcons.fileSearch, size: 40, color: AppColors.textSecondary),
-          SizedBox(height: 10),
-          Text(
+          const Icon(
+            LucideIcons.fileSearch,
+            size: 40,
+            color: AppColors.textSecondary,
+          ),
+          const SizedBox(height: 10),
+          const Text(
             'لا توجد عمليات حذف مسجلة',
             style: TextStyle(
               fontWeight: FontWeight.w900,
               color: AppColors.primaryNavy,
             ),
           ),
-          SizedBox(height: 4),
-          Text(
+          const SizedBox(height: 4),
+          const Text(
             'أي بالتة أو صنف يتم حذفه بالخطأ سيظهر هنا بالتفاصيل والسبب.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
+          if (filter.hasActiveFilters) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _clearAllFilters(cubit),
+              icon: const Icon(LucideIcons.rotateCcw, size: 15),
+              label: const Text('مسح الفلاتر'),
+            ),
+          ],
         ],
       ),
     ),

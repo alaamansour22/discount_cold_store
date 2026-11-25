@@ -1,7 +1,9 @@
 import '../entities/receiving_entities.dart';
 
 abstract class IReceivingRepository {
-  Future<List<ReceivingMovementEntity>> getMovementsLog({int limit = 250});
+  Future<ReceiptsHistoryPageEntity> getReceiptsHistoryPaginated(
+    ReceiptsHistoryFilter filter,
+  );
 
   Future<void> receiveNewPallet({
     required ReceivingSource sourceEntity,

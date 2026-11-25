@@ -32,8 +32,8 @@ class ResponsiveColdStorageShimmer extends StatelessWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 shrinkWrap: true,
                 itemCount: rowsCount,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (_, __) => Container(
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                itemBuilder: (_, _) => Container(
                   height: 78,
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -75,7 +75,7 @@ class ResponsiveColdStorageShimmer extends StatelessWidget {
                 mainAxisExtent: cardHeight,
               ),
               itemCount: count,
-              itemBuilder: (_, __) => Container(
+              itemBuilder: (_, _) => Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(14),

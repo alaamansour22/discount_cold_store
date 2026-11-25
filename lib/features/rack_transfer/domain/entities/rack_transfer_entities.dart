@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/pagination/paged_result.dart';
+
 class TransferPalletItemSummary extends Equatable {
   final String itemName;
   final double quantity;
@@ -76,6 +78,7 @@ class TransferSlotEntity extends Equatable {
 class RackTransferHistoryEntity extends Equatable {
   final String id;
   final String palletId;
+  final String palletReference;
   final String itemName;
   final double quantity;
   final String unitArLabel;
@@ -88,6 +91,7 @@ class RackTransferHistoryEntity extends Equatable {
   const RackTransferHistoryEntity({
     required this.id,
     required this.palletId,
+    this.palletReference = '—',
     required this.itemName,
     required this.quantity,
     required this.unitArLabel,
@@ -102,9 +106,76 @@ class RackTransferHistoryEntity extends Equatable {
   List<Object?> get props => [
     id,
     palletId,
+    palletReference,
     itemName,
     fromSlotCode,
     toSlotCode,
     createdAt,
   ];
+}
+
+class RackTransferHistoryFilter extends Equatable {
+  final int page;
+  final int pageSize;
+  final String search;
+  final DateTime? fromDate;
+  final DateTime? toDate;
+
+  const RackTransferHistoryFilter({
+    this.page = 1,
+    this.pageSize = 20,
+    this.search = '',
+    this.fromDate,
+    this.toDate,
+  });
+
+  bool get hasActiveFilters =>
+      search.trim().isNotEmpty || fromDate != null || toDate != null;
+
+  RackTransferHistoryFilter copyWith({
+    int? page,
+    int? pageSize,
+    String? search,
+    DateTime? fromDate,
+    bool clearFromDate = false,
+    DateTime? toDate,
+    bool clearToDate = false,
+  }) {
+    return RackTransferHistoryFilter(
+      page: page ?? this.page,
+      pageSize: pageSize ?? this.pageSize,
+      search: search ?? this.search,
+      fromDate: clearFromDate ? null : (fromDate ?? this.fromDate),
+      toDate: clearToDate ? null : (toDate ?? this.toDate),
+    );
+  }
+
+  @override
+  List<Object?> get props => [page, pageSize, search, fromDate, toDate];
+}
+
+class RackTransferHistorySummaryEntity extends Equatable {
+  final int totalTransfers;
+
+  const RackTransferHistorySummaryEntity({this.totalTransfers = 0});
+
+  @override
+  List<Object?> get props => [totalTransfers];
+}
+
+class RackTransferHistoryPageEntity extends Equatable {
+  final PagedResult<RackTransferHistoryEntity> page;
+  final RackTransferHistorySummaryEntity summary;
+
+  const RackTransferHistoryPageEntity({
+    required this.page,
+    required this.summary,
+  });
+
+  const RackTransferHistoryPageEntity.empty()
+    : page = const PagedResult.empty(),
+      summary = const RackTransferHistorySummaryEntity();
+
+  @override
+  List<Object?> get props => [page, summary];
 }

@@ -10,12 +10,30 @@ class GetAllSlotsForTransferUseCase {
       _repository.getAllSlotsForTransfer();
 }
 
-class GetRelocationHistoryUseCase {
+class GetRelocationHistoryPaginatedUseCase {
   final IRackTransferRepository _repository;
-  const GetRelocationHistoryUseCase(this._repository);
+  const GetRelocationHistoryPaginatedUseCase(this._repository);
 
-  Future<List<RackTransferHistoryEntity>> call({int limit = 150}) =>
-      _repository.getRelocationHistory(limit: limit);
+  Future<RackTransferHistoryPageEntity> call(
+    RackTransferHistoryFilter filter,
+  ) async {
+    if (filter.fromDate != null &&
+        filter.toDate != null &&
+        filter.toDate!.isBefore(filter.fromDate!)) {
+      throw const AppFailure(
+        message: 'تاريخ النهاية يجب أن يكون بعد أو يساوي تاريخ البداية.',
+        type: FailureType.validationError,
+      );
+    }
+
+    final normalized = filter.copyWith(
+      page: filter.page < 1 ? 1 : filter.page,
+      pageSize: filter.pageSize.clamp(1, 500),
+      search: filter.search.trim(),
+    );
+
+    return _repository.getRelocationHistoryPaginated(normalized);
+  }
 }
 
 class RelocatePalletUseCase {
@@ -28,16 +46,36 @@ class RelocatePalletUseCase {
     required String targetSlotId,
     required String notes,
   }) async {
-    if (sourceSlotId == targetSlotId) {
+    final cleanPalletId = palletId.trim();
+    final cleanSourceId = sourceSlotId.trim();
+    final cleanTargetId = targetSlotId.trim();
+
+    if (cleanPalletId.isEmpty ||
+        cleanSourceId.isEmpty ||
+        cleanTargetId.isEmpty) {
+      throw const AppFailure(
+        message: 'بيانات البالتة أو المواقع المحددة غير مكتملة.',
+        type: FailureType.validationError,
+      );
+    }
+    if (cleanSourceId == cleanTargetId) {
       throw const AppFailure(
         message: 'لا يمكن نقل البالتة إلى نفس الموقع الموجودة فيه حالياً.',
         type: FailureType.validationError,
       );
     }
+    final cleanNotes = notes.trim();
+    if (cleanNotes.length > 500) {
+      throw const AppFailure(
+        message: 'ملاحظات التحويل أطول من الحد المسموح (500 حرف).',
+        type: FailureType.validationError,
+      );
+    }
+
     return _repository.relocatePallet(
-      palletId: palletId,
-      targetSlotId: targetSlotId,
-      notes: notes,
+      palletId: cleanPalletId,
+      targetSlotId: cleanTargetId,
+      notes: cleanNotes,
     );
   }
 }
@@ -52,13 +90,13 @@ class WatchRealtimeTransferChangesUseCase {
 /// حزمة UseCases مجمعة لموديول تحويل الراكات
 class RackTransferUseCases {
   final GetAllSlotsForTransferUseCase getAllSlots;
-  final GetRelocationHistoryUseCase getHistory;
+  final GetRelocationHistoryPaginatedUseCase getHistory;
   final RelocatePalletUseCase relocatePallet;
   final WatchRealtimeTransferChangesUseCase watchRealtimeChanges;
 
   RackTransferUseCases(IRackTransferRepository repository)
     : getAllSlots = GetAllSlotsForTransferUseCase(repository),
-      getHistory = GetRelocationHistoryUseCase(repository),
+      getHistory = GetRelocationHistoryPaginatedUseCase(repository),
       relocatePallet = RelocatePalletUseCase(repository),
       watchRealtimeChanges = WatchRealtimeTransferChangesUseCase(repository);
 }

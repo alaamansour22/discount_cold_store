@@ -3,15 +3,16 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/error/error_handler.dart';
+import '../../../warehouse/domain/usecases/warehouse_usecases.dart';
 import '../../domain/entities/receiving_entities.dart';
 import '../../domain/usecases/receiving_usecases.dart';
-import '../../../warehouse/domain/usecases/warehouse_usecases.dart';
 import 'receiving_state.dart';
 
 class ReceivingCubit extends Cubit<ReceivingState> {
   final ReceivingUseCases _useCases;
   final WarehouseUseCases _warehouseUseCases;
   StreamSubscription<void>? _realtimeSub;
+  int _receiptsRequestSeq = 0;
 
   ReceivingCubit(this._useCases, this._warehouseUseCases)
     : super(const ReceivingState()) {
@@ -32,21 +33,100 @@ class ReceivingCubit extends Cubit<ReceivingState> {
     }
     try {
       final slots = await _warehouseUseCases.getRackSlots();
-      final movements = await _useCases.getMovementsLog();
       if (isClosed) return;
-      emit(
-        state.copyWith(
-          isLoading: false,
-          slots: slots,
-          movements: movements,
-          clearFailure: true,
-        ),
-      );
+      emit(state.copyWith(isLoading: false, slots: slots, clearFailure: true));
+      if (state.receiptsInitialized) {
+        await loadReceiptsHistory(silent: true);
+      }
     } catch (e) {
       if (isClosed) return;
       emit(state.copyWith(isLoading: false, failure: ErrorHandler.handle(e)));
     }
   }
+
+  // ==================== سجل الاستلامات (Server-Side Pagination) ====================
+
+  Future<void> ensureReceiptsLoaded() async {
+    if (!state.receiptsInitialized && !state.isReceiptsLoading) {
+      await loadReceiptsHistory();
+    }
+  }
+
+  Future<void> loadReceiptsHistory({
+    ReceiptsHistoryFilter? filter,
+    bool silent = false,
+  }) async {
+    if (isClosed) return;
+    final targetFilter = filter ?? state.receiptsFilter;
+    final seq = ++_receiptsRequestSeq;
+
+    if (!silent) {
+      emit(
+        state.copyWith(
+          isReceiptsLoading: true,
+          receiptsFilter: targetFilter,
+          clearFailure: true,
+        ),
+      );
+    }
+
+    try {
+      final result = await _useCases.getReceiptsHistoryPaginated(targetFilter);
+      if (isClosed || seq != _receiptsRequestSeq) return;
+
+      // حماية إذا أصبحت الصفحة الحالية أكبر من عدد الصفحات بعد حذف أو فلترة
+      if (targetFilter.page > result.page.totalPages &&
+          result.page.totalPages >= 1) {
+        await loadReceiptsHistory(
+          filter: targetFilter.copyWith(page: result.page.totalPages),
+          silent: silent,
+        );
+        return;
+      }
+
+      emit(
+        state.copyWith(
+          isReceiptsLoading: false,
+          receiptsInitialized: true,
+          receiptsFilter: targetFilter,
+          receiptsHistory: result,
+          clearFailure: true,
+        ),
+      );
+    } catch (e) {
+      if (isClosed || seq != _receiptsRequestSeq) return;
+      emit(
+        state.copyWith(
+          isReceiptsLoading: false,
+          receiptsInitialized: true,
+          failure: ErrorHandler.handle(e),
+        ),
+      );
+    }
+  }
+
+  Future<void> updateReceiptsFilter(ReceiptsHistoryFilter nextFilter) =>
+      loadReceiptsHistory(filter: nextFilter.copyWith(page: 1));
+
+  Future<void> goToReceiptsPage(int page) =>
+      loadReceiptsHistory(filter: state.receiptsFilter.copyWith(page: page));
+
+  Future<void> changeReceiptsPageSize(int pageSize) => loadReceiptsHistory(
+    filter: state.receiptsFilter.copyWith(page: 1, pageSize: pageSize),
+  );
+
+  Future<void> clearReceiptsFilters() => loadReceiptsHistory(
+    filter: ReceiptsHistoryFilter(pageSize: state.receiptsFilter.pageSize),
+  );
+
+  /// يجلب كامل النتائج المطابقة للفلاتر من قاعدة البيانات لتصدير PDF دقيق
+  Future<ReceiptsHistoryPageEntity> fetchReceiptsForExport() {
+    return _useCases.getReceiptsHistoryPaginated(
+      state.receiptsFilter.copyWith(page: 1, pageSize: 500),
+    );
+  }
+
+  // ==================== خريطة الراكات وعمليات الاستلام ====================
 
   void selectZone(String zoneCode) {
     final defaultRack = zoneCode == 'C2' ? 'A' : 'N';
@@ -208,10 +288,7 @@ class ReceivingCubit extends Cubit<ReceivingState> {
       ),
     );
     try {
-      await _useCases.deleteMistakenPallet(
-        palletId: palletId,
-        reason: reason,
-      );
+      await _useCases.deleteMistakenPallet(palletId: palletId, reason: reason);
       if (isClosed) return;
       await loadData(silent: true);
       if (isClosed) return;

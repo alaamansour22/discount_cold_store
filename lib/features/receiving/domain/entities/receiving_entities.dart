@@ -1,5 +1,5 @@
 import 'package:equatable/equatable.dart';
-
+import '../../../../core/pagination/paged_result.dart';
 /// وحدات القياس المعتمدة في ثلاجة مخفض (C)
 enum PackageUnit {
   carton('carton', 'كرتونة'),
@@ -199,10 +199,11 @@ class ReceivingRackSlotEntity extends Equatable {
   ];
 }
 
-/// كيان سجل الاستلامات والصرف والتعديلات
+/// كيان سجل الاستلامات (مع رقم البالتة الحقيقي من جدول pallets)
 class ReceivingMovementEntity extends Equatable {
   final String id;
   final String palletId;
+  final String? palletReference;
   final MovementActionType movementType;
   final String itemName;
   final double previousQuantity;
@@ -219,6 +220,7 @@ class ReceivingMovementEntity extends Equatable {
   const ReceivingMovementEntity({
     required this.id,
     required this.palletId,
+    this.palletReference,
     required this.movementType,
     required this.itemName,
     required this.previousQuantity,
@@ -236,9 +238,207 @@ class ReceivingMovementEntity extends Equatable {
   @override
   List<Object?> get props => [
     id,
+    palletId,
+    palletReference,
     movementType,
     itemName,
     quantityChanged,
     createdAt,
   ];
+}
+
+
+/// نوع عملية الاستلام المجمّعة القادمة من PostgreSQL
+enum ReceiptOperationKind {
+  all('all', 'كل الأنواع'),
+  single('single', 'بالتة موحدة'),
+  mixed('mixed', 'بالتة ميكس'),
+  addItem('add_item', 'تزويد صنف');
+
+  final String dbValue;
+  final String arLabel;
+  const ReceiptOperationKind(this.dbValue, this.arLabel);
+
+  static ReceiptOperationKind fromDb(String? val) => switch (val) {
+    'mixed' => ReceiptOperationKind.mixed,
+    'add_item' => ReceiptOperationKind.addItem,
+    _ => ReceiptOperationKind.single,
+  };
+}
+
+/// فلاتر ومعاملات الباجينيشن لسجل الاستلامات (تُرسل مباشرة لقاعدة البيانات)
+class ReceiptsHistoryFilter extends Equatable {
+  final int page;
+  final int pageSize;
+  final String search;
+  final ReceivingSource? source;
+  final ReceiptOperationKind kind;
+  final DateTime? fromDate;
+  final DateTime? toDate;
+
+  const ReceiptsHistoryFilter({
+    this.page = 1,
+    this.pageSize = 20,
+    this.search = '',
+    this.source,
+    this.kind = ReceiptOperationKind.all,
+    this.fromDate,
+    this.toDate,
+  });
+
+  bool get hasActiveFilters =>
+      search.trim().isNotEmpty ||
+      source != null ||
+      kind != ReceiptOperationKind.all ||
+      fromDate != null ||
+      toDate != null;
+
+  ReceiptsHistoryFilter copyWith({
+    int? page,
+    int? pageSize,
+    String? search,
+    ReceivingSource? source,
+    bool clearSource = false,
+    ReceiptOperationKind? kind,
+    DateTime? fromDate,
+    bool clearFromDate = false,
+    DateTime? toDate,
+    bool clearToDate = false,
+  }) {
+    return ReceiptsHistoryFilter(
+      page: page ?? this.page,
+      pageSize: pageSize ?? this.pageSize,
+      search: search ?? this.search,
+      source: clearSource ? null : (source ?? this.source),
+      kind: kind ?? this.kind,
+      fromDate: clearFromDate ? null : (fromDate ?? this.fromDate),
+      toDate: clearToDate ? null : (toDate ?? this.toDate),
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+    page,
+    pageSize,
+    search,
+    source,
+    kind,
+    fromDate,
+    toDate,
+  ];
+}
+
+class ReceiptOperationItemEntity extends Equatable {
+  final String id;
+  final String itemName;
+  final double quantity;
+  final PackageUnit unit;
+  final ReceivingSource sourceEntity;
+  final String? notes;
+
+  const ReceiptOperationItemEntity({
+    required this.id,
+    required this.itemName,
+    required this.quantity,
+    required this.unit,
+    required this.sourceEntity,
+    this.notes,
+  });
+
+  @override
+  List<Object?> get props => [id, itemName, quantity, unit, sourceEntity];
+}
+
+/// عملية استلام مجمّعة (بالتة موحدة أو ميكس أو تزويد) محسوبة بالكامل في PostgreSQL
+class ReceiptOperationEntity extends Equatable {
+  final String operationKey;
+  final String palletId;
+  final String palletReference;
+  final MovementActionType movementType;
+  final ReceiptOperationKind operationKind;
+  final int itemsCount;
+  final String totalSummary;
+  final String slotCode;
+  final ReceivingSource sourceEntity;
+  final String performedByName;
+  final DateTime createdAt;
+  final List<ReceiptOperationItemEntity> items;
+
+  const ReceiptOperationEntity({
+    required this.operationKey,
+    required this.palletId,
+    required this.palletReference,
+    required this.movementType,
+    required this.operationKind,
+    required this.itemsCount,
+    required this.totalSummary,
+    required this.slotCode,
+    required this.sourceEntity,
+    required this.performedByName,
+    required this.createdAt,
+    required this.items,
+  });
+
+  String get kindDisplayLabel => operationKind == ReceiptOperationKind.mixed
+      ? 'ميكس ($itemsCount أصناف)'
+      : operationKind.arLabel;
+
+  @override
+  List<Object?> get props => [
+    operationKey,
+    palletId,
+    palletReference,
+    operationKind,
+    itemsCount,
+    totalSummary,
+    slotCode,
+    createdAt,
+  ];
+}
+
+/// ملخص مؤشرات سجل الاستلامات (محسوب بالكامل داخل PostgreSQL على كافة النتائج المفلترة)
+class ReceiptsHistorySummaryEntity extends Equatable {
+  final int totalOperations;
+  final int singleCount;
+  final int mixedCount;
+  final int addItemCount;
+  final int totalItemLines;
+  final String totalsByUnitSummary;
+
+  const ReceiptsHistorySummaryEntity({
+    this.totalOperations = 0,
+    this.singleCount = 0,
+    this.mixedCount = 0,
+    this.addItemCount = 0,
+    this.totalItemLines = 0,
+    this.totalsByUnitSummary = '0',
+  });
+
+  @override
+  List<Object?> get props => [
+    totalOperations,
+    singleCount,
+    mixedCount,
+    addItemCount,
+    totalItemLines,
+    totalsByUnitSummary,
+  ];
+}
+
+/// نتيجة صفحة واحدة من سجل الاستلامات + الملخص الكلي
+class ReceiptsHistoryPageEntity extends Equatable {
+  final PagedResult<ReceiptOperationEntity> page;
+  final ReceiptsHistorySummaryEntity summary;
+
+  const ReceiptsHistoryPageEntity({
+    required this.page,
+    required this.summary,
+  });
+
+  const ReceiptsHistoryPageEntity.empty()
+    : page = const PagedResult.empty(),
+      summary = const ReceiptsHistorySummaryEntity();
+
+  @override
+  List<Object?> get props => [page, summary];
 }

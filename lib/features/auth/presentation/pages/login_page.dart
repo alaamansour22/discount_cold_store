@@ -216,7 +216,7 @@ class _ColdStorageLoginPageState extends State<ColdStorageLoginPage> {
                                           child: Image.asset(
                                             AppAssets.logoSq,
                                             fit: BoxFit.contain,
-                                            errorBuilder: (_, __, ___) =>
+                                            errorBuilder: (_, _, _) =>
                                                 const Icon(
                                                   LucideIcons.snowflake,
                                                   size: 42,

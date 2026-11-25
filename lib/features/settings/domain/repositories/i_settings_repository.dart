@@ -1,3 +1,4 @@
+import '../entities/admin_user_entity.dart';
 import '../entities/create_user_params.dart';
 import '../entities/notification_settings_entity.dart';
 
@@ -5,12 +6,21 @@ abstract class ISettingsRepository {
   /// جلب إعدادات مدة الإعدامات العامة للثلاجة + إعدادات التنبيه الشخصية للمستخدم
   Future<NotificationSettingsEntity> getSettings();
 
-  /// حفظ التعديلات وتحديث محرك إشعارات الصلاحية فوراً عبر الدالة الذرية rpc_update_user_notification_settings
+  /// حفظ التعديلات عبر rpc_save_notification_settings
   Future<NotificationSettingsEntity> saveNotificationSettings({
     required int globalThresholdDays,
     required int userCustomAlertDays,
     required bool notificationsEnabled,
     required bool receiveMondayAlert,
+  });
+
+  /// جلب قائمة الموظفين بالبحث والفلاتر والباجينيشن للأدمن فقط عبر rpc_admin_list_users_paginated
+  Future<AdminUsersPageEntity> getAdminUsersPaginated(AdminUsersFilter filter);
+
+  /// منح أو سحب صلاحية عكس مستندات الصرف لموظف
+  Future<void> setDispatchReversalPermission({
+    required String profileId,
+    required bool grant,
   });
 
   /// إنشاء مستخدم جديد بصلاحياته (متاح لمدير النظام فقط عبر rpc_admin_create_user)

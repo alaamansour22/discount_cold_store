@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/error/error_handler.dart';
 import '../../domain/entities/report_entities.dart';
 import '../../domain/usecases/reports_usecases.dart';
 import 'reports_state.dart';
@@ -9,45 +10,28 @@ class ReportsCubit extends Cubit<ReportsState> {
 
   ReportsCubit(this._useCases) : super(const ReportsState());
 
-  Future<List<ReportRow>> _run(
-    Future<List<ReportRow>> Function() request,
-  ) async {
-    if (isClosed) throw StateError('ReportsCubit is closed');
+  Future<ReportPageEntity> fetchReportPage(ReportQueryParams params) async {
+    if (isClosed) {
+      throw StateError('ReportsCubit is closed');
+    }
     emit(state.copyWith(isLoading: true, clearFailure: true));
     try {
-      final records = await request();
+      final result = await _useCases.getReportPaginated(params);
       if (!isClosed) {
-        emit(state.copyWith(isLoading: false, records: records));
+        emit(state.copyWith(isLoading: false, lastReport: result));
       }
-      return records;
+      return result;
     } catch (e) {
+      final failure = ErrorHandler.handle(e);
       if (!isClosed) {
-        emit(state.copyWith(isLoading: false, failure: e.toString()));
+        emit(state.copyWith(isLoading: false, failure: failure));
       }
-      rethrow;
+      throw failure;
     }
   }
 
-  Future<List<ReportRow>> getDispatchItems(ReportDateRange range) =>
-      _run(() => _useCases.getDispatchItems(range));
-
-  Future<List<ReportRow>> getDispatchDocuments(ReportDateRange range) =>
-      _run(() => _useCases.getDispatchDocuments(range));
-
-  Future<List<ReportRow>> getReceipts(ReportDateRange range) =>
-      _run(() => _useCases.getReceipts(range));
-
-  Future<List<ReportRow>> getCurrentInventory() =>
-      _run(_useCases.getCurrentInventory);
-
-  Future<List<ReportRow>> getItemBalances() => _run(_useCases.getItemBalances);
-
-  Future<List<ReportRow>> getCondemnationHistory(ReportDateRange range) =>
-      _run(() => _useCases.getCondemnationHistory(range));
-
-  Future<int> getCondemnationThreshold() =>
-      _useCases.getCondemnationThreshold();
-
-  Future<List<ReportRow>> getCondemnationAlerts(int threshold) =>
-      _run(() => _useCases.getCondemnationAlerts(threshold));
+  /// جلب كافة الصفوف المطابقة لتصدير PDF كامل (حتى 5000 سجل من PostgreSQL)
+  Future<ReportPageEntity> fetchReportForPrint(ReportQueryParams params) {
+    return fetchReportPage(params.copyWith(page: 1, pageSize: 5000));
+  }
 }

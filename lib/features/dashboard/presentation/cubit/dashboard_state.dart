@@ -7,7 +7,13 @@ class DashboardState extends Equatable {
   final bool isLoading;
   final bool isRefreshing;
   final DashboardStatsEntity stats;
-  final List<DashboardNotificationEntity> notifications;
+
+  // إشعارات المستخدم (Server-Side Pagination + فلتر غير المقروءة)
+  final bool isNotificationsLoading;
+  final bool notificationsInitialized;
+  final DashboardNotificationsPageEntity notificationsData;
+  final DashboardNotificationsFilter notificationsFilter;
+
   final DateTime? lastUpdated;
   final AppFailure? failure;
 
@@ -15,19 +21,29 @@ class DashboardState extends Equatable {
     this.isLoading = true,
     this.isRefreshing = false,
     this.stats = const DashboardStatsEntity(),
-    this.notifications = const [],
+    this.isNotificationsLoading = false,
+    this.notificationsInitialized = false,
+    this.notificationsData = const DashboardNotificationsPageEntity.empty(),
+    this.notificationsFilter = const DashboardNotificationsFilter(),
     this.lastUpdated,
     this.failure,
   });
 
-  int get unreadNotificationsCount =>
-      notifications.where((n) => !n.isRead).length;
+  int get unreadNotificationsCount => notificationsInitialized
+      ? notificationsData.summary.unreadCount
+      : stats.unreadNotificationsCount;
+
+  List<DashboardNotificationEntity> get notifications =>
+      notificationsData.page.items;
 
   DashboardState copyWith({
     bool? isLoading,
     bool? isRefreshing,
     DashboardStatsEntity? stats,
-    List<DashboardNotificationEntity>? notifications,
+    bool? isNotificationsLoading,
+    bool? notificationsInitialized,
+    DashboardNotificationsPageEntity? notificationsData,
+    DashboardNotificationsFilter? notificationsFilter,
     DateTime? lastUpdated,
     AppFailure? failure,
     bool clearFailure = false,
@@ -36,7 +52,12 @@ class DashboardState extends Equatable {
       isLoading: isLoading ?? this.isLoading,
       isRefreshing: isRefreshing ?? this.isRefreshing,
       stats: stats ?? this.stats,
-      notifications: notifications ?? this.notifications,
+      isNotificationsLoading:
+          isNotificationsLoading ?? this.isNotificationsLoading,
+      notificationsInitialized:
+          notificationsInitialized ?? this.notificationsInitialized,
+      notificationsData: notificationsData ?? this.notificationsData,
+      notificationsFilter: notificationsFilter ?? this.notificationsFilter,
       lastUpdated: lastUpdated ?? this.lastUpdated,
       failure: clearFailure ? null : (failure ?? this.failure),
     );
@@ -47,7 +68,10 @@ class DashboardState extends Equatable {
     isLoading,
     isRefreshing,
     stats,
-    notifications,
+    isNotificationsLoading,
+    notificationsInitialized,
+    notificationsData,
+    notificationsFilter,
     lastUpdated,
     failure,
   ];

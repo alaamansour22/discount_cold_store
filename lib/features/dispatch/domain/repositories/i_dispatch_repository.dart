@@ -1,10 +1,27 @@
 import '../entities/dispatch_entities.dart';
-import '../../../receiving/domain/entities/receiving_entities.dart';
 
 abstract class IDispatchRepository {
-  Future<List<ReceivingPalletItemEntity>> getAvailableItems();
-  Future<List<DispatchDocumentEntity>> getDocuments({int limit = 30});
+  Future<DispatchAvailablePalletsPageEntity> getAvailablePalletsPaginated(
+    DispatchAvailablePalletsFilter filter,
+  );
+
+  Future<DispatchDocumentsPageEntity> getDocumentsPaginated(
+    DispatchDocumentsFilter filter,
+  );
+
   Future<List<DispatchDocumentLineEntity>> getDocumentLines(String documentId);
-  Future<Map<String, dynamic>> createDocument(List<DispatchDraftLine> lines);
-  Future<void> reverseDocument(String documentId, String reason);
+
+  Future<DispatchReversalReadinessEntity> checkReversalReadiness(
+    String documentId,
+  );
+
+  Future<DispatchJsonMap> createDocument(List<DispatchDraftLine> lines);
+
+  Future<void> reverseDocument({
+    required String documentId,
+    required String reason,
+    List<DispatchSlotAssignment> alternativeSlots = const [],
+  });
+
+  Stream<void> watchRealtimeChanges();
 }

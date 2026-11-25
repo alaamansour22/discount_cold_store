@@ -15,8 +15,9 @@ class WarehouseRepositoryImpl implements IWarehouseRepository {
       final activeItems = await remote.fetchActivePalletItems();
       final itemsBySlot = <String, List<ReceivingPalletItemModel>>{};
       for (final item in activeItems) {
-        if (item.slotId.isNotEmpty)
+        if (item.slotId.isNotEmpty) {
           itemsBySlot.putIfAbsent(item.slotId, () => []).add(item);
+        }
       }
       return rawSlots.map((map) {
         final id = map['id'] as String;

@@ -6,6 +6,10 @@ import '../models/receiving_models.dart';
 abstract class IReceivingRemoteDataSource {
   Future<List<ReceivingMovementModel>> fetchMovements({int limit = 250});
 
+  Future<ReceiptsHistoryPageEntity> fetchReceiptsHistoryPaginated(
+    ReceiptsHistoryFilter filter,
+  );
+
   Future<void> rpcReceivePallet({
     required ReceivingSource sourceEntity,
     required String slotId,
@@ -41,11 +45,20 @@ class ReceivingRemoteDataSourceImpl implements IReceivingRemoteDataSource {
 
   ReceivingRemoteDataSourceImpl(this._supabase);
 
+  String? _dateOnly(DateTime? d) {
+    if (d == null) return null;
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$day';
+  }
+
   @override
   Future<List<ReceivingMovementModel>> fetchMovements({int limit = 250}) async {
     final data = await _supabase
         .from('inventory_movements')
-        .select('*, profiles(full_name)')
+        .select('*, profiles(full_name), pallets(pallet_reference)')
+        .inFilter('movement_type', const ['receive_new', 'add_item_to_pallet'])
         .order('created_at', ascending: false)
         .limit(limit);
     final list = data as List;
@@ -55,6 +68,33 @@ class ReceivingRemoteDataSourceImpl implements IReceivingRemoteDataSource {
               ReceivingMovementModel.fromJson(ReceivingJsonMap.from(r as Map)),
         )
         .toList();
+  }
+
+  @override
+  Future<ReceiptsHistoryPageEntity> fetchReceiptsHistoryPaginated(
+    ReceiptsHistoryFilter filter,
+  ) async {
+    final res = await _supabase.rpc(
+      'rpc_get_receipts_history_paginated',
+      params: {
+        'p_page': filter.page,
+        'p_page_size': filter.pageSize,
+        'p_search': filter.search.trim().isEmpty ? null : filter.search.trim(),
+        'p_source': filter.source?.dbValue,
+        'p_kind': filter.kind == ReceiptOperationKind.all
+            ? null
+            : filter.kind.dbValue,
+        'p_from_date': _dateOnly(filter.fromDate),
+        'p_to_date': _dateOnly(filter.toDate),
+      },
+    );
+
+    if (res is Map) {
+      return ReceiptsHistoryModelMapper.pageFromRpcJson(
+        ReceivingJsonMap.from(res),
+      );
+    }
+    return const ReceiptsHistoryPageEntity.empty();
   }
 
   @override
@@ -114,10 +154,7 @@ class ReceivingRemoteDataSourceImpl implements IReceivingRemoteDataSource {
   }) async {
     await _supabase.rpc(
       'rpc_delete_mistaken_pallet',
-      params: {
-        'p_pallet_id': palletId,
-        'p_reason': reason.trim(),
-      },
+      params: {'p_pallet_id': palletId, 'p_reason': reason.trim()},
     );
   }
 
@@ -128,10 +165,7 @@ class ReceivingRemoteDataSourceImpl implements IReceivingRemoteDataSource {
   }) async {
     final res = await _supabase.rpc(
       'rpc_delete_mistaken_pallet_item',
-      params: {
-        'p_pallet_item_id': palletItemId,
-        'p_reason': reason.trim(),
-      },
+      params: {'p_pallet_item_id': palletItemId, 'p_reason': reason.trim()},
     );
     if (res is Map) {
       return res['slot_freed'] as bool? ?? false;

@@ -1,4 +1,5 @@
 import '../../../../core/error/error_handler.dart';
+import '../../domain/entities/admin_user_entity.dart';
 import '../../domain/entities/create_user_params.dart';
 import '../../domain/entities/notification_settings_entity.dart';
 import '../../domain/repositories/i_settings_repository.dart';
@@ -31,6 +32,32 @@ class SettingsRepositoryImpl implements ISettingsRepository {
         userCustomAlertDays: userCustomAlertDays,
         notificationsEnabled: notificationsEnabled,
         receiveMondayAlert: receiveMondayAlert,
+      );
+    } catch (e) {
+      throw ErrorHandler.handle(e);
+    }
+  }
+
+  @override
+  Future<AdminUsersPageEntity> getAdminUsersPaginated(
+    AdminUsersFilter filter,
+  ) async {
+    try {
+      return await _remoteDataSource.fetchAdminUsersPaginated(filter);
+    } catch (e) {
+      throw ErrorHandler.handle(e);
+    }
+  }
+
+  @override
+  Future<void> setDispatchReversalPermission({
+    required String profileId,
+    required bool grant,
+  }) async {
+    try {
+      await _remoteDataSource.rpcSetDispatchReversalPermission(
+        profileId: profileId,
+        grant: grant,
       );
     } catch (e) {
       throw ErrorHandler.handle(e);

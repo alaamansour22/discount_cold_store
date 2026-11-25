@@ -8,12 +8,19 @@ class GetDashboardStatisticsUseCase {
   Future<DashboardStatsEntity> call() => _repository.getDashboardStatistics();
 }
 
-class GetDashboardNotificationsUseCase {
+class GetDashboardNotificationsPaginatedUseCase {
   final IDashboardRepository _repository;
-  const GetDashboardNotificationsUseCase(this._repository);
+  const GetDashboardNotificationsPaginatedUseCase(this._repository);
 
-  Future<List<DashboardNotificationEntity>> call() =>
-      _repository.getUserNotifications();
+  Future<DashboardNotificationsPageEntity> call(
+    DashboardNotificationsFilter filter,
+  ) {
+    final normalized = filter.copyWith(
+      page: filter.page < 1 ? 1 : filter.page,
+      pageSize: filter.pageSize.clamp(1, 100),
+    );
+    return _repository.getUserNotificationsPaginated(normalized);
+  }
 }
 
 class MarkAllDashboardNotificationsReadUseCase {
@@ -33,13 +40,13 @@ class WatchRealtimeDashboardChangesUseCase {
 /// حزمة UseCases مجمعة لموديول Dashboard
 class DashboardUseCases {
   final GetDashboardStatisticsUseCase getStats;
-  final GetDashboardNotificationsUseCase getNotifications;
+  final GetDashboardNotificationsPaginatedUseCase getNotifications;
   final MarkAllDashboardNotificationsReadUseCase markAllNotificationsRead;
   final WatchRealtimeDashboardChangesUseCase watchRealtimeChanges;
 
   DashboardUseCases(IDashboardRepository repository)
     : getStats = GetDashboardStatisticsUseCase(repository),
-      getNotifications = GetDashboardNotificationsUseCase(repository),
+      getNotifications = GetDashboardNotificationsPaginatedUseCase(repository),
       markAllNotificationsRead = MarkAllDashboardNotificationsReadUseCase(
         repository,
       ),

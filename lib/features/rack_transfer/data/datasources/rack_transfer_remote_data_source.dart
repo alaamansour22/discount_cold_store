@@ -8,9 +8,10 @@ import '../models/rack_transfer_models.dart';
 abstract class IRackTransferRemoteDataSource {
   Future<List<TransferJsonMap>> fetchRawSlots();
   Future<List<TransferJsonMap>> fetchActiveItems();
-  Future<List<RackTransferHistoryEntity>> fetchRelocationMovements({
-    int limit = 150,
-  });
+
+  Future<RackTransferHistoryPageEntity> fetchRelocationHistoryPaginated(
+    RackTransferHistoryFilter filter,
+  );
 
   Future<void> rpcRelocatePallet({
     required String palletId,
@@ -26,6 +27,16 @@ class RackTransferRemoteDataSourceImpl
   final SupabaseClient _supabase;
 
   RackTransferRemoteDataSourceImpl(this._supabase);
+
+  String? _dateOnly(DateTime? d) {
+    if (d == null) {
+      return null;
+    }
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$day';
+  }
 
   @override
   Future<List<TransferJsonMap>> fetchRawSlots() async {
@@ -48,24 +59,26 @@ class RackTransferRemoteDataSourceImpl
   }
 
   @override
-  Future<List<RackTransferHistoryEntity>> fetchRelocationMovements({
-    int limit = 150,
-  }) async {
-    final data = await _supabase
-        .from('inventory_movements')
-        .select('*, profiles(full_name)')
-        .eq('movement_type', 'relocate')
-        .order('created_at', ascending: false)
-        .limit(limit);
+  Future<RackTransferHistoryPageEntity> fetchRelocationHistoryPaginated(
+    RackTransferHistoryFilter filter,
+  ) async {
+    final res = await _supabase.rpc(
+      'rpc_get_rack_transfers_paginated',
+      params: {
+        'p_page': filter.page,
+        'p_page_size': filter.pageSize,
+        'p_search': filter.search.trim().isEmpty ? null : filter.search.trim(),
+        'p_from_date': _dateOnly(filter.fromDate),
+        'p_to_date': _dateOnly(filter.toDate),
+      },
+    );
 
-    final list = data as List;
-    return list
-        .map(
-          (r) => TransferModelMapper.historyFromJson(
-            TransferJsonMap.from(r as Map),
-          ),
-        )
-        .toList();
+    if (res is Map) {
+      return TransferModelMapper.historyPageFromRpcJson(
+        TransferJsonMap.from(res),
+      );
+    }
+    return const RackTransferHistoryPageEntity.empty();
   }
 
   @override

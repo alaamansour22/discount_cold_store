@@ -8,12 +8,12 @@ class ReceivingRepositoryImpl implements IReceivingRepository {
 
   ReceivingRepositoryImpl(this._remoteDataSource);
 
-  @override
-  Future<List<ReceivingMovementEntity>> getMovementsLog({
-    int limit = 250,
-  }) async {
+ @override
+  Future<ReceiptsHistoryPageEntity> getReceiptsHistoryPaginated(
+    ReceiptsHistoryFilter filter,
+  ) async {
     try {
-      return await _remoteDataSource.fetchMovements(limit: limit);
+      return await _remoteDataSource.fetchReceiptsHistoryPaginated(filter);
     } catch (e) {
       throw ErrorHandler.handle(e);
     }

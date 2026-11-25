@@ -9,57 +9,44 @@ import '../../domain/usecases/movements_log_usecases.dart';
 
 class DeletedRecordsState extends Equatable {
   final bool isLoading;
-  final List<DeletedRecordEntity> records;
-  final DateTime? fromDate;
-  final DateTime? toDate;
-  final DeletedActionKind? kindFilter;
+  final bool initialized;
+  final DeletedRecordsPageEntity data;
+  final DeletedRecordsFilter filter;
   final AppFailure? failure;
 
   const DeletedRecordsState({
     this.isLoading = true,
-    this.records = const [],
-    this.fromDate,
-    this.toDate,
-    this.kindFilter,
+    this.initialized = false,
+    this.data = const DeletedRecordsPageEntity.empty(),
+    this.filter = const DeletedRecordsFilter(),
     this.failure,
   });
 
   DeletedRecordsState copyWith({
     bool? isLoading,
-    List<DeletedRecordEntity>? records,
-    DateTime? fromDate,
-    bool clearFromDate = false,
-    DateTime? toDate,
-    bool clearToDate = false,
-    DeletedActionKind? kindFilter,
-    bool clearKindFilter = false,
+    bool? initialized,
+    DeletedRecordsPageEntity? data,
+    DeletedRecordsFilter? filter,
     AppFailure? failure,
     bool clearFailure = false,
   }) {
     return DeletedRecordsState(
       isLoading: isLoading ?? this.isLoading,
-      records: records ?? this.records,
-      fromDate: clearFromDate ? null : (fromDate ?? this.fromDate),
-      toDate: clearToDate ? null : (toDate ?? this.toDate),
-      kindFilter: clearKindFilter ? null : (kindFilter ?? this.kindFilter),
+      initialized: initialized ?? this.initialized,
+      data: data ?? this.data,
+      filter: filter ?? this.filter,
       failure: clearFailure ? null : (failure ?? this.failure),
     );
   }
 
   @override
-  List<Object?> get props => [
-    isLoading,
-    records,
-    fromDate,
-    toDate,
-    kindFilter,
-    failure,
-  ];
+  List<Object?> get props => [isLoading, initialized, data, filter, failure];
 }
 
 class DeletedRecordsCubit extends Cubit<DeletedRecordsState> {
   final MovementsLogUseCases _useCases;
   StreamSubscription<void>? _realtimeSub;
+  int _requestSeq = 0;
 
   DeletedRecordsCubit(this._useCases) : super(const DeletedRecordsState()) {
     loadRecords();
@@ -70,49 +57,81 @@ class DeletedRecordsCubit extends Cubit<DeletedRecordsState> {
     });
   }
 
-  Future<void> loadRecords({bool silent = false}) async {
-    if (isClosed) return;
-    if (!silent) {
-      emit(state.copyWith(isLoading: true, clearFailure: true));
+  Future<void> loadRecords({
+    DeletedRecordsFilter? filter,
+    bool silent = false,
+  }) async {
+    if (isClosed) {
+      return;
     }
-    try {
-      final list = await _useCases.getDeletedRecords(
-        fromDate: state.fromDate,
-        toDate: state.toDate,
-        kindFilter: state.kindFilter,
-      );
-      if (isClosed) return;
+    final targetFilter = filter ?? state.filter;
+    final seq = ++_requestSeq;
+
+    if (!silent) {
       emit(
-        state.copyWith(isLoading: false, records: list, clearFailure: true),
+        state.copyWith(
+          isLoading: true,
+          filter: targetFilter,
+          clearFailure: true,
+        ),
+      );
+    }
+
+    try {
+      final result = await _useCases.getDeletedRecords(targetFilter);
+      if (isClosed || seq != _requestSeq) {
+        return;
+      }
+
+      if (targetFilter.page > result.page.totalPages &&
+          result.page.totalPages >= 1) {
+        await loadRecords(
+          filter: targetFilter.copyWith(page: result.page.totalPages),
+          silent: silent,
+        );
+        return;
+      }
+
+      emit(
+        state.copyWith(
+          isLoading: false,
+          initialized: true,
+          filter: targetFilter,
+          data: result,
+          clearFailure: true,
+        ),
       );
     } catch (e) {
-      if (isClosed) return;
-      emit(state.copyWith(isLoading: false, failure: ErrorHandler.handle(e)));
+      if (isClosed || seq != _requestSeq) {
+        return;
+      }
+      emit(
+        state.copyWith(
+          isLoading: false,
+          initialized: true,
+          failure: ErrorHandler.handle(e),
+        ),
+      );
     }
   }
 
-  Future<void> applyFilters({
-    DateTime? fromDate,
-    bool clearFromDate = false,
-    DateTime? toDate,
-    bool clearToDate = false,
-    DeletedActionKind? kindFilter,
-    bool clearKindFilter = false,
-  }) async {
-    if (isClosed) return;
-    emit(
-      state.copyWith(
-        isLoading: true,
-        fromDate: fromDate,
-        clearFromDate: clearFromDate,
-        toDate: toDate,
-        clearToDate: clearToDate,
-        kindFilter: kindFilter,
-        clearKindFilter: clearKindFilter,
-        clearFailure: true,
-      ),
+  Future<void> updateFilter(DeletedRecordsFilter nextFilter) =>
+      loadRecords(filter: nextFilter.copyWith(page: 1));
+
+  Future<void> goToPage(int page) =>
+      loadRecords(filter: state.filter.copyWith(page: page));
+
+  Future<void> changePageSize(int pageSize) =>
+      loadRecords(filter: state.filter.copyWith(page: 1, pageSize: pageSize));
+
+  Future<void> clearFilters() => loadRecords(
+    filter: DeletedRecordsFilter(pageSize: state.filter.pageSize),
+  );
+
+  Future<DeletedRecordsPageEntity> fetchForExport() {
+    return _useCases.getDeletedRecords(
+      state.filter.copyWith(page: 1, pageSize: 500),
     );
-    await loadRecords(silent: true);
   }
 
   @override

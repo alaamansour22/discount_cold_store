@@ -18,9 +18,11 @@ class DashboardRepositoryImpl implements IDashboardRepository {
   }
 
   @override
-  Future<List<DashboardNotificationEntity>> getUserNotifications() async {
+  Future<DashboardNotificationsPageEntity> getUserNotificationsPaginated(
+    DashboardNotificationsFilter filter,
+  ) async {
     try {
-      return await _remoteDataSource.fetchNotifications();
+      return await _remoteDataSource.fetchNotificationsPaginated(filter);
     } catch (e) {
       throw ErrorHandler.handle(e);
     }

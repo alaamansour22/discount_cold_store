@@ -1,29 +1,32 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/error/error_handler.dart';
 import '../../domain/entities/report_entities.dart';
 
 class ReportsState extends Equatable {
   final bool isLoading;
-  final String? failure;
-  final List<ReportRow> records;
+  final AppFailure? failure;
+  final ReportPageEntity? lastReport;
 
   const ReportsState({
     this.isLoading = false,
     this.failure,
-    this.records = const [],
+    this.lastReport,
   });
 
   ReportsState copyWith({
     bool? isLoading,
-    String? failure,
+    AppFailure? failure,
     bool clearFailure = false,
-    List<ReportRow>? records,
-  }) => ReportsState(
-    isLoading: isLoading ?? this.isLoading,
-    failure: clearFailure ? null : (failure ?? this.failure),
-    records: records ?? this.records,
-  );
+    ReportPageEntity? lastReport,
+  }) {
+    return ReportsState(
+      isLoading: isLoading ?? this.isLoading,
+      failure: clearFailure ? null : (failure ?? this.failure),
+      lastReport: lastReport ?? this.lastReport,
+    );
+  }
 
   @override
-  List<Object?> get props => [isLoading, failure, records];
+  List<Object?> get props => [isLoading, failure, lastReport];
 }

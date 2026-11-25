@@ -1,3 +1,4 @@
+import '../../../../core/pagination/paged_result.dart';
 import '../../../receiving/domain/entities/receiving_entities.dart';
 import '../../domain/entities/deleted_record_entity.dart';
 
@@ -26,13 +27,19 @@ class DeletedRecordModel extends DeletedRecordEntity {
         : null;
 
     final items = <DeletedItemSnapshot>[];
-    if (kind == DeletedActionKind.fullPallet) {
+    final rpcItems = json['items'];
+    if (rpcItems is List) {
+      for (final entry in rpcItems) {
+        if (entry is Map) {
+          items.add(_parseSnapshot(Map<String, dynamic>.from(entry)));
+        }
+      }
+    } else if (kind == DeletedActionKind.fullPallet) {
       final rawItems = details['deleted_items'];
       if (rawItems is List) {
         for (final entry in rawItems) {
           if (entry is Map) {
-            final map = Map<String, dynamic>.from(entry);
-            items.add(_parseSnapshot(map));
+            items.add(_parseSnapshot(Map<String, dynamic>.from(entry)));
           }
         }
       }
@@ -48,19 +55,31 @@ class DeletedRecordModel extends DeletedRecordEntity {
     return DeletedRecordModel(
       id: json['id']?.toString() ?? '',
       actionKind: kind,
-      palletReference: details['pallet_reference']?.toString() ?? '—',
+      palletReference:
+          json['pallet_reference']?.toString() ??
+          details['pallet_reference']?.toString() ??
+          '—',
       slotCode:
-          (json['slot_code']?.toString() ?? details['slot_code']?.toString()) ??
+          json['slot_code']?.toString() ??
+          details['slot_code']?.toString() ??
           '—',
       sourceEntity: source,
-      reason: details['reason']?.toString() ?? '—',
-      deletedByName: profile?['full_name']?.toString() ?? 'مستخدم النظام',
+      reason:
+          json['reason']?.toString() ??
+          details['reason']?.toString() ??
+          '—',
+      deletedByName:
+          json['deleted_by_name']?.toString() ??
+          profile?['full_name']?.toString() ??
+          'مستخدم النظام',
       deletedAt:
           DateTime.tryParse(json['created_at']?.toString() ?? '')?.toLocal() ??
           DateTime.now(),
-      slotFreed: kind == DeletedActionKind.fullPallet
-          ? true
-          : (details['slot_freed'] as bool? ?? false),
+      slotFreed:
+          (json['slot_freed'] as bool?) ??
+          (kind == DeletedActionKind.fullPallet
+              ? true
+              : (details['slot_freed'] as bool? ?? false)),
       items: items,
     );
   }
@@ -75,5 +94,31 @@ class DeletedRecordModel extends DeletedRecordEntity {
       ),
       expiryDate: DateTime.tryParse(map['expiry_date']?.toString() ?? ''),
     );
+  }
+}
+
+class DeletedRecordsPageMapper {
+  const DeletedRecordsPageMapper._();
+
+  static DeletedRecordsPageEntity fromRpcJson(Map<String, dynamic> json) {
+    final paged = PagedResult<DeletedRecordEntity>.fromRpcJson(
+      json,
+      DeletedRecordModel.fromJson,
+    );
+
+    final summaryMap = json['summary'] is Map
+        ? Map<String, dynamic>.from(json['summary'] as Map)
+        : const <String, dynamic>{};
+
+    final summary = DeletedRecordsSummaryEntity(
+      totalDeletions:
+          (summaryMap['total_deletions'] as num?)?.toInt() ?? paged.totalCount,
+      fullPalletCount:
+          (summaryMap['full_pallet_count'] as num?)?.toInt() ?? 0,
+      singleItemCount:
+          (summaryMap['single_item_count'] as num?)?.toInt() ?? 0,
+    );
+
+    return DeletedRecordsPageEntity(page: paged, summary: summary);
   }
 }

@@ -1,28 +1,22 @@
 import 'dart:async';
 
-import 'package:discount_cold_store/features/receiving/domain/entities/receiving_entities.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../domain/entities/deleted_record_entity.dart';
+import '../../domain/entities/movements_log_entities.dart';
 import '../models/deleted_record_model.dart';
 import '../models/movements_log_models.dart';
 
 abstract class IMovementsLogRemoteDataSource {
-  Future<List<SystemMovementModel>> fetchMovements({
-    DateTime? fromDate,
-    DateTime? toDate,
-    MovementActionType? movementTypeFilter,
-    ReceivingSource? sourceFilter,
-    int limit = 400,
-  });
+  Future<MovementsLogPageEntity> fetchMovementsPaginated(
+    MovementsLogFilter filter,
+  );
 
   Stream<void> subscribeToMovements();
 
-  Future<List<DeletedRecordModel>> fetchDeletedRecords({
-    DateTime? fromDate,
-    DateTime? toDate,
-    String? actionTypeFilter,
-    int limit = 300,
-  });
+  Future<DeletedRecordsPageEntity> fetchDeletedRecordsPaginated(
+    DeletedRecordsFilter filter,
+  );
 
   Stream<void> subscribeToDeletedRecords();
 }
@@ -31,59 +25,39 @@ class MovementsLogRemoteDataSourceImpl
     implements IMovementsLogRemoteDataSource {
   final SupabaseClient _supabase;
 
-  static const List<String> _deleteActionTypes = [
-    'DELETE_MISTAKEN_PALLET',
-    'DELETE_MISTAKEN_PALLET_ITEM',
-  ];
-
   MovementsLogRemoteDataSourceImpl(this._supabase);
 
+  String? _dateOnly(DateTime? d) {
+    if (d == null) {
+      return null;
+    }
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$day';
+  }
+
   @override
-  Future<List<SystemMovementModel>> fetchMovements({
-    DateTime? fromDate,
-    DateTime? toDate,
-    MovementActionType? movementTypeFilter,
-    ReceivingSource? sourceFilter,
-    int limit = 400,
-  }) async {
-    var query = _supabase
-        .from('inventory_movements')
-        .select('*, profiles(full_name)');
+  Future<MovementsLogPageEntity> fetchMovementsPaginated(
+    MovementsLogFilter filter,
+  ) async {
+    final res = await _supabase.rpc(
+      'rpc_get_movements_log_paginated',
+      params: {
+        'p_page': filter.page,
+        'p_page_size': filter.pageSize,
+        'p_search': filter.search.trim().isEmpty ? null : filter.search.trim(),
+        'p_movement_type': filter.movementType?.dbValue,
+        'p_source': filter.source?.dbValue,
+        'p_from_date': _dateOnly(filter.fromDate),
+        'p_to_date': _dateOnly(filter.toDate),
+      },
+    );
 
-    if (fromDate != null) {
-      final start = DateTime(
-        fromDate.year,
-        fromDate.month,
-        fromDate.day,
-      ).toIso8601String();
-      query = query.gte('created_at', start);
+    if (res is Map) {
+      return MovementsLogPageMapper.fromRpcJson(MoveJsonMap.from(res));
     }
-
-    if (toDate != null) {
-      final end = DateTime(
-        toDate.year,
-        toDate.month,
-        toDate.day,
-        23,
-        59,
-        59,
-      ).toIso8601String();
-      query = query.lte('created_at', end);
-    }
-
-    if (movementTypeFilter != null) {
-      query = query.eq('movement_type', movementTypeFilter.dbValue);
-    }
-
-    if (sourceFilter != null) {
-      query = query.eq('source_entity', sourceFilter.dbValue);
-    }
-
-    final data = await query.order('created_at', ascending: false).limit(limit);
-    final list = data as List;
-    return list
-        .map((r) => SystemMovementModel.fromJson(MoveJsonMap.from(r as Map)))
-        .toList();
+    return const MovementsLogPageEntity.empty();
   }
 
   @override
@@ -106,53 +80,27 @@ class MovementsLogRemoteDataSourceImpl
   }
 
   @override
-  Future<List<DeletedRecordModel>> fetchDeletedRecords({
-    DateTime? fromDate,
-    DateTime? toDate,
-    String? actionTypeFilter,
-    int limit = 300,
-  }) async {
-    var query = _supabase
-        .from('user_audit_logs')
-        .select('*, profiles(full_name)');
+  Future<DeletedRecordsPageEntity> fetchDeletedRecordsPaginated(
+    DeletedRecordsFilter filter,
+  ) async {
+    final res = await _supabase.rpc(
+      'rpc_get_deleted_records_paginated',
+      params: {
+        'p_page': filter.page,
+        'p_page_size': filter.pageSize,
+        'p_search': filter.search.trim().isEmpty ? null : filter.search.trim(),
+        'p_action_type': filter.kind?.dbValue,
+        'p_from_date': _dateOnly(filter.fromDate),
+        'p_to_date': _dateOnly(filter.toDate),
+      },
+    );
 
-    if (actionTypeFilter != null && actionTypeFilter.isNotEmpty) {
-      query = query.eq('action_type', actionTypeFilter);
-    } else {
-      query = query.inFilter('action_type', _deleteActionTypes);
+    if (res is Map) {
+      return DeletedRecordsPageMapper.fromRpcJson(
+        Map<String, dynamic>.from(res),
+      );
     }
-
-    if (fromDate != null) {
-      final start = DateTime(
-        fromDate.year,
-        fromDate.month,
-        fromDate.day,
-      ).toUtc().toIso8601String();
-      query = query.gte('created_at', start);
-    }
-
-    if (toDate != null) {
-      final end = DateTime(
-        toDate.year,
-        toDate.month,
-        toDate.day,
-        23,
-        59,
-        59,
-        999,
-      ).toUtc().toIso8601String();
-      query = query.lte('created_at', end);
-    }
-
-    final data = await query.order('created_at', ascending: false).limit(limit);
-    final list = data as List;
-    return list
-        .map(
-          (r) => DeletedRecordModel.fromJson(
-            Map<String, dynamic>.from(r as Map),
-          ),
-        )
-        .toList();
+    return const DeletedRecordsPageEntity.empty();
   }
 
   @override

@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/pagination/paged_result.dart';
 import '../../../receiving/domain/entities/receiving_entities.dart';
 
 enum DeletedActionKind {
@@ -81,4 +82,85 @@ class DeletedRecordEntity extends Equatable {
     slotFreed,
     items,
   ];
+}
+
+class DeletedRecordsFilter extends Equatable {
+  final int page;
+  final int pageSize;
+  final String search;
+  final DeletedActionKind? kind;
+  final DateTime? fromDate;
+  final DateTime? toDate;
+
+  const DeletedRecordsFilter({
+    this.page = 1,
+    this.pageSize = 20,
+    this.search = '',
+    this.kind,
+    this.fromDate,
+    this.toDate,
+  });
+
+  bool get hasActiveFilters =>
+      search.trim().isNotEmpty ||
+      kind != null ||
+      fromDate != null ||
+      toDate != null;
+
+  DeletedRecordsFilter copyWith({
+    int? page,
+    int? pageSize,
+    String? search,
+    DeletedActionKind? kind,
+    bool clearKind = false,
+    DateTime? fromDate,
+    bool clearFromDate = false,
+    DateTime? toDate,
+    bool clearToDate = false,
+  }) {
+    return DeletedRecordsFilter(
+      page: page ?? this.page,
+      pageSize: pageSize ?? this.pageSize,
+      search: search ?? this.search,
+      kind: clearKind ? null : (kind ?? this.kind),
+      fromDate: clearFromDate ? null : (fromDate ?? this.fromDate),
+      toDate: clearToDate ? null : (toDate ?? this.toDate),
+    );
+  }
+
+  @override
+  List<Object?> get props => [page, pageSize, search, kind, fromDate, toDate];
+}
+
+class DeletedRecordsSummaryEntity extends Equatable {
+  final int totalDeletions;
+  final int fullPalletCount;
+  final int singleItemCount;
+
+  const DeletedRecordsSummaryEntity({
+    this.totalDeletions = 0,
+    this.fullPalletCount = 0,
+    this.singleItemCount = 0,
+  });
+
+  @override
+  List<Object?> get props => [
+    totalDeletions,
+    fullPalletCount,
+    singleItemCount,
+  ];
+}
+
+class DeletedRecordsPageEntity extends Equatable {
+  final PagedResult<DeletedRecordEntity> page;
+  final DeletedRecordsSummaryEntity summary;
+
+  const DeletedRecordsPageEntity({required this.page, required this.summary});
+
+  const DeletedRecordsPageEntity.empty()
+    : page = const PagedResult.empty(),
+      summary = const DeletedRecordsSummaryEntity();
+
+  @override
+  List<Object?> get props => [page, summary];
 }

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart' as intl;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/app_pagination_bar.dart';
 import '../../../../core/widgets/responsive_shimmer.dart';
 import '../../domain/entities/dashboard_stats_entity.dart';
 import '../cubit/dashboard_cubit.dart';
@@ -14,7 +15,7 @@ class DashboardPage extends StatefulWidget {
 
   const DashboardPage({super.key, required this.onQuickNavigateToTab});
 
-static const int tabReceiving = 1;
+  static const int tabReceiving = 1;
   static const int tabTransfer = 3;
   static const int tabCondemnations = 5;
   static const int tabMovementsLog = 6;
@@ -36,8 +37,11 @@ class _DashboardPageState extends State<DashboardPage> {
           prev.failure != curr.failure && curr.failure != null,
       listener: (context, state) {
         final isOffstage =
-            context.findAncestorWidgetOfExactType<Offstage>()?.offstage ?? false;
-        if (isOffstage || state.failure == null) return;
+            context.findAncestorWidgetOfExactType<Offstage>()?.offstage ??
+            false;
+        if (isOffstage || state.failure == null) {
+          return;
+        }
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(
@@ -52,7 +56,7 @@ class _DashboardPageState extends State<DashboardPage> {
           previous.isLoading != current.isLoading ||
           previous.isRefreshing != current.isRefreshing ||
           previous.stats != current.stats ||
-          previous.notifications != current.notifications,
+          previous.unreadNotificationsCount != current.unreadNotificationsCount,
       builder: (context, state) {
         if (state.isLoading) {
           return const ResponsiveColdStorageShimmer(
@@ -76,11 +80,13 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 1360),
                     child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       padding: EdgeInsets.fromLTRB(pad, 14, pad, 24),
                       children: [
-                        // 1. بطاقة الملخص العلوية المدمجة والشيك
+                        // 1. بطاقة الملخص العلوية المدمجة
                         _CompactSummaryBanner(
                           stats: s,
+                          isDesktop: isDesktop,
                           unreadNotifications: state.unreadNotificationsCount,
                           isRefreshing: state.isRefreshing,
                           onOpenNotifications: () =>
@@ -109,7 +115,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         ),
                         const SizedBox(height: 18),
 
-                        // 3. الوصول السريع للأقسام (تصميم نظيف بدون نصوص مقطوعة)
+                        // 3. الوصول السريع للأقسام
                         _CleanQuickActionsGrid(
                           stats: s,
                           width: width,
@@ -172,6 +178,9 @@ class _DashboardPageState extends State<DashboardPage> {
 
   void _openNotificationsDialog(BuildContext context) {
     final cubit = context.read<DashboardCubit>();
+    cubit.loadNotifications(
+      filter: cubit.state.notificationsFilter.copyWith(page: 1),
+    );
     showDialog<void>(
       context: context,
       builder: (_) => BlocProvider.value(
@@ -187,6 +196,7 @@ class _DashboardPageState extends State<DashboardPage> {
 // =============================================================================
 class _CompactSummaryBanner extends StatelessWidget {
   final DashboardStatsEntity stats;
+  final bool isDesktop;
   final int unreadNotifications;
   final bool isRefreshing;
   final VoidCallback onOpenNotifications;
@@ -196,6 +206,7 @@ class _CompactSummaryBanner extends StatelessWidget {
 
   const _CompactSummaryBanner({
     required this.stats,
+    required this.isDesktop,
     required this.unreadNotifications,
     required this.isRefreshing,
     required this.onOpenNotifications,
@@ -228,7 +239,7 @@ class _CompactSummaryBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // الصف العلوي: العنوان + أزرار الإشعارات والتحديث
+          // الصف العلوي: العنوان + زر الإشعارات (وزر التحديث على الكمبيوتر فقط)
           Row(
             children: [
               Container(
@@ -260,7 +271,7 @@ class _CompactSummaryBanner extends StatelessWidget {
                       'نسبة الإشغال الكلية $pct% • حركات اليوم: ${stats.todayMovementsCount}',
                       style: const TextStyle(
                         color: Colors.white70,
-                        fontSize: 10.0,
+                        fontSize: 10.5,
                       ),
                     ),
                   ],
@@ -271,12 +282,14 @@ class _CompactSummaryBanner extends StatelessWidget {
                 badgeCount: unreadNotifications,
                 onTap: onOpenNotifications,
               ),
-              const SizedBox(width: 8),
-              _MiniHeaderIconButton(
-                icon: LucideIcons.refreshCw,
-                isSpinning: isRefreshing,
-                onTap: onRefresh,
-              ),
+              if (isDesktop) ...[
+                const SizedBox(width: 8),
+                _MiniHeaderIconButton(
+                  icon: LucideIcons.refreshCw,
+                  isSpinning: isRefreshing,
+                  onTap: onRefresh,
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 14),
@@ -1103,8 +1116,12 @@ class _MovementsListBody extends StatelessWidget {
   }
 
   String _cleanSlot(String? slot) {
-    if (slot == null || slot.isEmpty) return '';
-    if (slot == 'employee_sales_outlet') return 'منفذ البيع';
+    if (slot == null || slot.isEmpty) {
+      return '';
+    }
+    if (slot == 'employee_sales_outlet') {
+      return 'منفذ البيع';
+    }
     return slot;
   }
 
@@ -1364,132 +1381,213 @@ class _ExpiryListBody extends StatelessWidget {
 }
 
 // =============================================================================
-// 6. نافذة الإشعارات والتنبيهات (Notifications Dialog)
+// 6. نافذة الإشعارات والتنبيهات (Server-Side Pagination + Unread Filter)
 // =============================================================================
 class _NotificationsModalDialog extends StatelessWidget {
   const _NotificationsModalDialog();
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      insetPadding: const EdgeInsets.all(20),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 560),
-        child: BlocBuilder<DashboardCubit, DashboardState>(
-          builder: (context, state) {
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        LucideIcons.bellRing,
-                        color: AppColors.primaryNavy,
-                        size: 19,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'الإشعارات (${state.unreadNotificationsCount} غير مقروء)',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.primaryNavy,
-                          ),
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 540, maxHeight: 600),
+          child: BlocBuilder<DashboardCubit, DashboardState>(
+            buildWhen: (prev, curr) =>
+                prev.isNotificationsLoading != curr.isNotificationsLoading ||
+                prev.notificationsInitialized != curr.notificationsInitialized ||
+                prev.notificationsData != curr.notificationsData ||
+                prev.notificationsFilter != curr.notificationsFilter ||
+                prev.unreadNotificationsCount != curr.unreadNotificationsCount,
+            builder: (context, state) {
+              final cubit = context.read<DashboardCubit>();
+              final pageData = state.notificationsData.page;
+              final items = pageData.items;
+              final unreadOnly = state.notificationsFilter.unreadOnly;
+
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          LucideIcons.bellRing,
+                          color: AppColors.primaryNavy,
+                          size: 19,
                         ),
-                      ),
-                      if (state.unreadNotificationsCount > 0)
-                        TextButton(
-                          onPressed: () => context
-                              .read<DashboardCubit>()
-                              .markAllNotificationsRead(),
-                          child: const Text('قراءة الكل'),
-                        ),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(LucideIcons.x, size: 18),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: state.notifications.isEmpty
-                      ? const Center(
+                        const SizedBox(width: 8),
+                        Expanded(
                           child: Text(
-                            'لا توجد إشعارات حالياً',
-                            style: TextStyle(color: AppColors.textSecondary),
+                            'الإشعارات (${state.unreadNotificationsCount} غير مقروء)',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.primaryNavy,
+                            ),
                           ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.all(14),
-                          itemCount: state.notifications.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 8),
-                          itemBuilder: (_, idx) {
-                            final n = state.notifications[idx];
-                            return Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: n.isRead
-                                    ? const Color(0xFFF8FAFC)
-                                    : AppColors.zoneC2Blue.withValues(
-                                        alpha: 0.06,
-                                      ),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: n.isRead
-                                      ? AppColors.borderLight
-                                      : AppColors.zoneC2Blue.withValues(
-                                          alpha: 0.3,
-                                        ),
-                                ),
+                        ),
+                        if (state.unreadNotificationsCount > 0)
+                          TextButton(
+                            onPressed: state.isNotificationsLoading
+                                ? null
+                                : () => cubit.markAllNotificationsRead(),
+                            child: const Text('قراءة الكل'),
+                          ),
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(LucideIcons.x, size: 18),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Row(
+                      children: [
+                        ChoiceChip(
+                          label: Text(
+                            'الكل (${state.notificationsData.summary.totalNotifications})',
+                          ),
+                          selected: !unreadOnly,
+                          showCheckmark: false,
+                          visualDensity: VisualDensity.compact,
+                          selectedColor: AppColors.primaryNavy,
+                          labelStyle: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: !unreadOnly
+                                ? Colors.white
+                                : AppColors.primaryNavy,
+                          ),
+                          onSelected: (_) => cubit.toggleUnreadOnly(false),
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          label: Text(
+                            'غير مقروء فقط (${state.unreadNotificationsCount})',
+                          ),
+                          selected: unreadOnly,
+                          showCheckmark: false,
+                          visualDensity: VisualDensity.compact,
+                          selectedColor: AppColors.dangerRed,
+                          labelStyle: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: unreadOnly
+                                ? Colors.white
+                                : AppColors.primaryNavy,
+                          ),
+                          onSelected: (_) => cubit.toggleUnreadOnly(true),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (state.isNotificationsLoading)
+                    const LinearProgressIndicator(minHeight: 2.5)
+                  else
+                    const Divider(height: 1),
+                  Expanded(
+                    child:
+                        !state.notificationsInitialized &&
+                            state.isNotificationsLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : items.isEmpty
+                        ? Center(
+                            child: Text(
+                              unreadOnly
+                                  ? 'لا توجد إشعارات غير مقروءة'
+                                  : 'لا توجد إشعارات حالياً',
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w700,
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          n.title,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 12.5,
-                                            color: AppColors.primaryNavy,
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.all(14),
+                            itemCount: items.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (_, idx) {
+                              final n = items[idx];
+                              return Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: n.isRead
+                                      ? const Color(0xFFF8FAFC)
+                                      : AppColors.zoneC2Blue.withValues(
+                                          alpha: 0.06,
+                                        ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: n.isRead
+                                        ? AppColors.borderLight
+                                        : AppColors.zoneC2Blue.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            n.title,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 12.5,
+                                              color: AppColors.primaryNavy,
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                      Text(
-                                        intl.DateFormat(
-                                          'MM-dd HH:mm',
-                                        ).format(n.createdAt),
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          color: AppColors.textSecondary,
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          intl.DateFormat(
+                                            'MM-dd HH:mm',
+                                          ).format(n.createdAt),
+                                          textDirection: TextDirection.ltr,
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            color: AppColors.textSecondary,
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    n.body,
-                                    style: const TextStyle(
-                                      fontSize: 11.5,
-                                      color: AppColors.textSecondary,
+                                      ],
                                     ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
-            );
-          },
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      n.body,
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  if (pageData.totalCount > 0)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+                      child: AppPaginationBar(
+                        pageData: pageData,
+                        isLoading: state.isNotificationsLoading,
+                        onPageChanged: cubit.goToNotificationsPage,
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

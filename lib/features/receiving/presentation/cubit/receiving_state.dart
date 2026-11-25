@@ -7,9 +7,15 @@ class ReceivingState extends Equatable {
   final bool isLoading;
   final bool isSubmitting;
   final List<ReceivingRackSlotEntity> slots;
-  final List<ReceivingMovementEntity> movements;
   final String selectedZone; // 'C2' or 'C3'
   final String selectedRackLetter; // 'A' .. 'T'
+
+  // حالة سجل الاستلامات (مجمّع ومُرقّم بالكامل من قاعدة البيانات)
+  final bool isReceiptsLoading;
+  final bool receiptsInitialized;
+  final ReceiptsHistoryPageEntity receiptsHistory;
+  final ReceiptsHistoryFilter receiptsFilter;
+
   final AppFailure? failure;
   final String? successMessage;
 
@@ -17,9 +23,12 @@ class ReceivingState extends Equatable {
     this.isLoading = true,
     this.isSubmitting = false,
     this.slots = const [],
-    this.movements = const [],
     this.selectedZone = 'C2',
     this.selectedRackLetter = 'A',
+    this.isReceiptsLoading = false,
+    this.receiptsInitialized = false,
+    this.receiptsHistory = const ReceiptsHistoryPageEntity.empty(),
+    this.receiptsFilter = const ReceiptsHistoryFilter(),
     this.failure,
     this.successMessage,
   });
@@ -44,9 +53,12 @@ class ReceivingState extends Equatable {
     bool? isLoading,
     bool? isSubmitting,
     List<ReceivingRackSlotEntity>? slots,
-    List<ReceivingMovementEntity>? movements,
     String? selectedZone,
     String? selectedRackLetter,
+    bool? isReceiptsLoading,
+    bool? receiptsInitialized,
+    ReceiptsHistoryPageEntity? receiptsHistory,
+    ReceiptsHistoryFilter? receiptsFilter,
     AppFailure? failure,
     bool clearFailure = false,
     String? successMessage,
@@ -56,9 +68,12 @@ class ReceivingState extends Equatable {
       isLoading: isLoading ?? this.isLoading,
       isSubmitting: isSubmitting ?? this.isSubmitting,
       slots: slots ?? this.slots,
-      movements: movements ?? this.movements,
       selectedZone: selectedZone ?? this.selectedZone,
       selectedRackLetter: selectedRackLetter ?? this.selectedRackLetter,
+      isReceiptsLoading: isReceiptsLoading ?? this.isReceiptsLoading,
+      receiptsInitialized: receiptsInitialized ?? this.receiptsInitialized,
+      receiptsHistory: receiptsHistory ?? this.receiptsHistory,
+      receiptsFilter: receiptsFilter ?? this.receiptsFilter,
       failure: clearFailure ? null : (failure ?? this.failure),
       successMessage: clearSuccess
           ? null
@@ -71,9 +86,12 @@ class ReceivingState extends Equatable {
     isLoading,
     isSubmitting,
     slots,
-    movements,
     selectedZone,
     selectedRackLetter,
+    isReceiptsLoading,
+    receiptsInitialized,
+    receiptsHistory,
+    receiptsFilter,
     failure,
     successMessage,
   ];

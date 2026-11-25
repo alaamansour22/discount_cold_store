@@ -1,4 +1,5 @@
 import '../../../../core/error/error_handler.dart';
+import '../entities/admin_user_entity.dart';
 import '../entities/create_user_params.dart';
 import '../entities/notification_settings_entity.dart';
 import '../repositories/i_settings_repository.dart';
@@ -39,6 +40,42 @@ class SaveNotificationSettingsUseCase {
       userCustomAlertDays: userCustomAlertDays,
       notificationsEnabled: notificationsEnabled,
       receiveMondayAlert: receiveMondayAlert,
+    );
+  }
+}
+
+class GetAdminUsersPaginatedUseCase {
+  final ISettingsRepository _repository;
+  const GetAdminUsersPaginatedUseCase(this._repository);
+
+  Future<AdminUsersPageEntity> call(AdminUsersFilter filter) {
+    final normalized = filter.copyWith(
+      page: filter.page < 1 ? 1 : filter.page,
+      pageSize: filter.pageSize.clamp(1, 100),
+      search: filter.search.trim(),
+    );
+    return _repository.getAdminUsersPaginated(normalized);
+  }
+}
+
+class SetDispatchReversalPermissionUseCase {
+  final ISettingsRepository _repository;
+  const SetDispatchReversalPermissionUseCase(this._repository);
+
+  Future<void> call({
+    required String profileId,
+    required bool grant,
+  }) async {
+    final cleanId = profileId.trim();
+    if (cleanId.isEmpty) {
+      throw const AppFailure(
+        message: 'معرّف الموظف غير صحيح.',
+        type: FailureType.validationError,
+      );
+    }
+    return _repository.setDispatchReversalPermission(
+      profileId: cleanId,
+      grant: grant,
     );
   }
 }
@@ -123,10 +160,7 @@ class DeleteUserUseCase {
       );
     }
 
-    return _repository.deleteUser(
-      userId: cleanId,
-      reason: cleanReason,
-    );
+    return _repository.deleteUser(userId: cleanId, reason: cleanReason);
   }
 }
 
@@ -134,12 +168,18 @@ class DeleteUserUseCase {
 class SettingsUseCases {
   final GetSettingsUseCase getSettings;
   final SaveNotificationSettingsUseCase saveSettings;
+  final GetAdminUsersPaginatedUseCase getAdminUsers;
+  final SetDispatchReversalPermissionUseCase setDispatchReversalPermission;
   final CreateUserUseCase createUser;
   final DeleteUserUseCase deleteUser;
 
   SettingsUseCases(ISettingsRepository repository)
     : getSettings = GetSettingsUseCase(repository),
       saveSettings = SaveNotificationSettingsUseCase(repository),
+      getAdminUsers = GetAdminUsersPaginatedUseCase(repository),
+      setDispatchReversalPermission = SetDispatchReversalPermissionUseCase(
+        repository,
+      ),
       createUser = CreateUserUseCase(repository),
       deleteUser = DeleteUserUseCase(repository);
 }

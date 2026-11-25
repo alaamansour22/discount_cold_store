@@ -374,9 +374,10 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
                         },
                       ),
                     ),
-              appBar: AppBar(
+appBar: AppBar(
                 backgroundColor: AppColors.primaryNavy,
                 elevation: 2,
+                centerTitle: true,
                 leading: !isDesktop
                     ? IconButton(
                         tooltip: 'القائمة الجانبية',
@@ -388,42 +389,23 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
                         padding: const EdgeInsets.all(10),
                         child: Image.asset(
                           AppAssets.logoSq,
-                          errorBuilder: (_, __, ___) => const Icon(
+                          errorBuilder: (_, _, _) => const Icon(
                             LucideIcons.snowflake,
                             color: AppColors.accentCyan,
                           ),
                         ),
                       ),
-                title: Row(
-                  children: [
-                    if (!isDesktop) ...[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: Image.asset(
-                          AppAssets.logoSq,
-                          height: 28,
-                          width: 28,
-                          errorBuilder: (_, __, ___) => const Icon(
-                            LucideIcons.snowflake,
-                            color: AppColors.accentCyan,
-                            size: 22,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                    ],
-                    Expanded(
-                      child: Text(
-                        '${widget.title} — $currentTabTitle',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15.5,
-                        ),
-                      ),
-                    ),
-                  ],
+                title: Text(
+                  isDesktop
+                      ? '${widget.title} — $currentTabTitle'
+                      : currentTabTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
                 ),
                 actions: [
                   if (widget.onNotificationsTap != null)
@@ -450,7 +432,27 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
                       icon: const Icon(LucideIcons.refreshCw),
                     ),
                   if (widget.actions != null) ...widget.actions!,
-                  const SizedBox(width: 6),
+                  if (!isDesktop)
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(end: 12),
+                      child: Center(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.asset(
+                            AppAssets.logoSq,
+                            height: 28,
+                            width: 28,
+                            errorBuilder: (_, _, _) => const Icon(
+                              LucideIcons.snowflake,
+                              color: AppColors.accentCyan,
+                              size: 22,
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    const SizedBox(width: 6),
                 ],
               ),
               body: Row(
@@ -474,18 +476,26 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
                         ),
                       ),
                     ),
-                  Expanded(
+                 Expanded(
                     child: RepaintBoundary(
-                      child: IndexedStack(
-                        index: widget.currentIndex,
-                        children: List.generate(widget.tabs.length, (i) {
-                          final isVisited =
-                              i == widget.currentIndex ||
-                              _visitedTabIndices.contains(i);
-                          return isVisited
-                              ? widget.tabs[i].page
-                              : const SizedBox.shrink();
-                        }),
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: isDesktop ? 1240 : double.infinity,
+                          ),
+                          child: IndexedStack(
+                            index: widget.currentIndex,
+                            children: List.generate(widget.tabs.length, (i) {
+                              final isVisited =
+                                  i == widget.currentIndex ||
+                                  _visitedTabIndices.contains(i);
+                              return isVisited
+                                  ? widget.tabs[i].page
+                                  : const SizedBox.shrink();
+                            }),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -814,7 +824,7 @@ class _ProfessionalSidebarContent extends StatelessWidget {
                     AppAssets.logoSq,
                     height: isCollapsed ? 38 : 42,
                     width: isCollapsed ? 38 : 42,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorBuilder: (_, _, _) => Container(
                       height: isCollapsed ? 38 : 42,
                       width: isCollapsed ? 38 : 42,
                       color: AppColors.primaryNavy,

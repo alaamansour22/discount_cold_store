@@ -1,145 +1,201 @@
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/pagination/paged_result.dart';
 import '../../../receiving/data/models/receiving_models.dart';
-import '../../../receiving/domain/entities/receiving_entities.dart';
 import '../../domain/entities/dispatch_entities.dart';
 
 abstract class IDispatchRemoteDataSource {
-  Future<List<ReceivingPalletItemEntity>> getAvailableItems();
-  Future<List<DispatchDocumentEntity>> getDocuments({int limit = 30});
+  Future<DispatchAvailablePalletsPageEntity> fetchAvailablePalletsPaginated(
+    DispatchAvailablePalletsFilter filter,
+  );
+
+  Future<DispatchDocumentsPageEntity> fetchDocumentsPaginated(
+    DispatchDocumentsFilter filter,
+  );
+
   Future<List<DispatchDocumentLineEntity>> getDocumentLines(String documentId);
-  Future<Map<String, dynamic>> createDocument(List<DispatchDraftLine> lines);
-  Future<void> reverseDocument(String documentId, String reason);
+
+  Future<DispatchReversalReadinessEntity> checkReversalReadiness(
+    String documentId,
+  );
+
+  Future<DispatchJsonMap> createDocument(List<DispatchDraftLine> lines);
+
+  Future<void> reverseDocument({
+    required String documentId,
+    required String reason,
+    List<DispatchSlotAssignment> alternativeSlots = const [],
+  });
+
+  Stream<void> subscribeToDispatchChanges();
 }
 
 class DispatchRemoteDataSourceImpl implements IDispatchRemoteDataSource {
   final SupabaseClient db;
+
   DispatchRemoteDataSourceImpl(this.db);
 
-  @override
-  Future<List<ReceivingPalletItemEntity>> getAvailableItems() async {
-    final rows = await db
-        .from('v_active_pallet_items')
-        .select()
-        .order('expiry_date');
-    return (rows as List)
-        .map(
-          (e) => ReceivingPalletItemModel.fromJson(
-            ReceivingJsonMap.from(e as Map),
-          ),
-        )
-        .toList();
+  String? _dateOnly(DateTime? d) {
+    if (d == null) {
+      return null;
+    }
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$day';
   }
 
   @override
-  Future<List<DispatchDocumentEntity>> getDocuments({int limit = 30}) async {
-    final rows = await db
-        .from('dispatch_documents')
-        .select('*')
-        .order('created_at', ascending: false)
-        .limit(limit);
-    final documents = (rows as List)
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
-    if (documents.isEmpty) return [];
-    final documentIds = documents.map((e) => e['id'] as String).toList();
-    final links = await db
-        .from('dispatch_document_pallets')
-        .select('document_id,pallet_id')
-        .inFilter('document_id', documentIds);
-    final palletIds = (links as List)
-        .map((e) => (e as Map)['pallet_id'] as String?)
-        .whereType<String>()
-        .toSet()
-        .toList();
-    final refsByPallet = <String, String>{};
-    if (palletIds.isNotEmpty) {
-      final palletRows = await db
-          .from('pallets')
-          .select('id,pallet_reference')
-          .inFilter('id', palletIds);
-      for (final row in palletRows as List) {
-        final value = Map<String, dynamic>.from(row as Map);
-        refsByPallet[value['id'] as String] =
-            value['pallet_reference'] as String? ?? '';
-      }
+  Future<DispatchAvailablePalletsPageEntity> fetchAvailablePalletsPaginated(
+    DispatchAvailablePalletsFilter filter,
+  ) async {
+    final res = await db.rpc(
+      'rpc_get_available_pallets_for_dispatch_paginated',
+      params: {
+        'p_page': filter.page,
+        'p_page_size': filter.pageSize,
+        'p_search': filter.search.trim().isEmpty ? null : filter.search.trim(),
+        'p_zone': filter.zone,
+        'p_pallet_kind': filter.palletKind,
+      },
+    );
+
+    if (res is! Map) {
+      return const DispatchAvailablePalletsPageEntity.empty();
     }
-    final refsByDocument = <String, List<String>>{};
-    for (final link in links) {
-      final value = Map<String, dynamic>.from(link as Map);
-      final ref = refsByPallet[value['pallet_id']];
-      if (ref != null && ref.isNotEmpty) {
-        refsByDocument
-            .putIfAbsent(value['document_id'] as String, () => <String>[])
-            .add(ref);
-      }
+
+    final map = DispatchJsonMap.from(res);
+    final paged = PagedResult<DispatchAvailablePalletEntity>.fromRpcJson(
+      map,
+      _palletFromRpcJson,
+    );
+
+    final summaryMap = map['summary'] is Map
+        ? DispatchJsonMap.from(map['summary'] as Map)
+        : const <String, dynamic>{};
+
+    final summary = DispatchAvailablePalletsSummaryEntity(
+      totalPallets:
+          (summaryMap['total_pallets'] as num?)?.toInt() ?? paged.totalCount,
+      singleCount: (summaryMap['single_count'] as num?)?.toInt() ?? 0,
+      mixedCount: (summaryMap['mixed_count'] as num?)?.toInt() ?? 0,
+      totalItemLines: (summaryMap['total_item_lines'] as num?)?.toInt() ?? 0,
+      totalsByUnitSummary:
+          summaryMap['totals_by_unit_summary']?.toString() ?? '0',
+    );
+
+    return DispatchAvailablePalletsPageEntity(page: paged, summary: summary);
+  }
+
+  DispatchAvailablePalletEntity _palletFromRpcJson(DispatchJsonMap j) {
+    final rawItems = j['items'] as List? ?? const [];
+    final items = [
+      for (final e in rawItems)
+        if (e is Map)
+          ReceivingPalletItemModel.fromJson(ReceivingJsonMap.from(e)),
+    ];
+
+    return DispatchAvailablePalletEntity(
+      palletId: j['pallet_id']?.toString() ?? '',
+      palletReference: j['pallet_reference']?.toString() ?? '—',
+      slotId: j['slot_id']?.toString() ?? '',
+      slotCode: j['slot_code']?.toString() ?? '—',
+      zoneCode: j['zone_code']?.toString() ?? 'C2',
+      isMixed: j['is_mixed'] as bool? ?? (items.length > 1),
+      itemsCount: (j['items_count'] as num?)?.toInt() ?? items.length,
+      minDaysUntilExpiry: (j['min_days_until_expiry'] as num?)?.toInt() ?? 0,
+      hasCondemnationAlert: j['has_condemnation_alert'] as bool? ?? false,
+      totalSummary: j['total_summary']?.toString() ?? '0',
+      items: items,
+    );
+  }
+
+  @override
+  Future<DispatchDocumentsPageEntity> fetchDocumentsPaginated(
+    DispatchDocumentsFilter filter,
+  ) async {
+    final res = await db.rpc(
+      'rpc_get_dispatch_documents_paginated',
+      params: {
+        'p_page': filter.page,
+        'p_page_size': filter.pageSize,
+        'p_search': filter.search.trim().isEmpty ? null : filter.search.trim(),
+        'p_status': filter.status,
+        'p_from_date': _dateOnly(filter.fromDate),
+        'p_to_date': _dateOnly(filter.toDate),
+      },
+    );
+
+    if (res is! Map) {
+      return const DispatchDocumentsPageEntity.empty();
     }
-    return documents.map((document) {
-      document['pallet_references'] =
-          refsByDocument[document['id']] ?? <String>[];
-      return DispatchDocumentEntity.fromJson(document);
-    }).toList();
+
+    final map = DispatchJsonMap.from(res);
+    final paged = PagedResult<DispatchDocumentEntity>.fromRpcJson(
+      map,
+      DispatchDocumentEntity.fromJson,
+    );
+
+    final summaryMap = map['summary'] is Map
+        ? DispatchJsonMap.from(map['summary'] as Map)
+        : const <String, dynamic>{};
+
+    final summary = DispatchDocumentsSummaryEntity(
+      totalDocuments:
+          (summaryMap['total_documents'] as num?)?.toInt() ?? paged.totalCount,
+      completedCount: (summaryMap['completed_count'] as num?)?.toInt() ?? 0,
+      reversedCount: (summaryMap['reversed_count'] as num?)?.toInt() ?? 0,
+      netDispatchedQuantity:
+          (summaryMap['net_dispatched_quantity'] as num?)?.toDouble() ?? 0,
+      currentUserCanReverse:
+          summaryMap['current_user_can_reverse'] as bool? ?? false,
+    );
+
+    return DispatchDocumentsPageEntity(page: paged, summary: summary);
   }
 
   @override
   Future<List<DispatchDocumentLineEntity>> getDocumentLines(
     String documentId,
   ) async {
-    final palletRows = await db
-        .from('dispatch_document_pallets')
-        .select('id,pallet_id,original_slot_code')
-        .eq('document_id', documentId);
-    if ((palletRows as List).isEmpty) return [];
-    final palletIds = palletRows.map((e) => e['id'] as String).toList();
-    final palletByDocId = {for (final e in palletRows) e['id'] as String: e};
-    final palletIdsInStock = palletRows
-        .map((e) => e['pallet_id'] as String?)
-        .whereType<String>()
-        .toSet()
-        .toList();
-    final palletReferences = <String, String>{};
-    if (palletIdsInStock.isNotEmpty) {
-      final stockPalletRows = await db
-          .from('pallets')
-          .select('id,pallet_reference')
-          .inFilter('id', palletIdsInStock);
-      for (final row in stockPalletRows as List) {
-        final value = Map<String, dynamic>.from(row as Map);
-        palletReferences[value['id'] as String] =
-            value['pallet_reference'] as String? ?? '';
-      }
+    final res = await db.rpc(
+      'rpc_get_dispatch_document_lines',
+      params: {'p_document_id': documentId},
+    );
+    if (res is! List) {
+      return const [];
     }
-    final itemRows = await db
-        .from('dispatch_document_items')
-        .select('*')
-        .inFilter('document_pallet_id', palletIds);
-    return (itemRows as List).map((e) {
-      final row = Map<String, dynamic>.from(e as Map);
-      final p = palletByDocId[row['document_pallet_id']];
-      return DispatchDocumentLineEntity(
-        palletReference:
-            palletReferences[(p?['pallet_id'] ?? '').toString()] ??
-            (p?['pallet_id'] ?? '').toString(),
-        slotCode: (p?['original_slot_code'] ?? '').toString(),
-        itemName: (row['item_name_snapshot'] ?? '').toString(),
-        unit: (row['unit'] ?? '').toString(),
-        method: (row['dispatch_method'] ?? '').toString(),
-        quantity: (row['quantity_dispatched'] as num?)?.toDouble() ?? 0,
-      );
-    }).toList();
+    return [
+      for (final e in res)
+        if (e is Map)
+          DispatchDocumentLineEntity.fromRpcJson(DispatchJsonMap.from(e)),
+    ];
   }
 
   @override
-  Future<Map<String, dynamic>> createDocument(
+  Future<DispatchReversalReadinessEntity> checkReversalReadiness(
+    String documentId,
+  ) async {
+    final res = await db.rpc(
+      'rpc_check_dispatch_reversal_readiness',
+      params: {'p_document_id': documentId},
+    );
+    return DispatchReversalReadinessEntity.fromJson(
+      DispatchJsonMap.from(res as Map),
+    );
+  }
+
+  @override
+  Future<DispatchJsonMap> createDocument(
     List<DispatchDraftLine> lines,
   ) async {
-    // The RPC contract is one object per pallet. Selected item lines are
-    // nested inside `items`; sending flat rows causes the database validator
-    // to reject the request because it expects a non-empty items array.
     final grouped = <String, List<DispatchDraftLine>>{};
     for (final line in lines) {
-      grouped.putIfAbsent(line.item.palletId, () => <DispatchDraftLine>[]);
-      grouped[line.item.palletId]!.add(line);
+      grouped
+          .putIfAbsent(line.item.palletId, () => <DispatchDraftLine>[])
+          .add(line);
     }
 
     final payload = grouped.entries.map((entry) {
@@ -155,10 +211,23 @@ class DispatchRemoteDataSourceImpl implements IDispatchRemoteDataSource {
         }
       }
 
+      final isFullPallet = entry.value.every(
+        (line) =>
+            line.palletFullySelected &&
+            line.method == 'full_pallet' &&
+            line.quantity >= line.item.quantity,
+      );
+
+      if (isFullPallet) {
+        return <String, dynamic>{
+          'pallet_id': entry.key,
+          'dispatch_method': 'full_pallet',
+          'items': const <DispatchJsonMap>[],
+        };
+      }
+
       return <String, dynamic>{
         'pallet_id': entry.key,
-        // Always use custom_quantity: a full quantity for one selected line
-        // must not be interpreted as dispatching every item on that pallet.
         'dispatch_method': 'custom_quantity',
         'items': entry.value
             .map(
@@ -175,18 +244,47 @@ class DispatchRemoteDataSourceImpl implements IDispatchRemoteDataSource {
       'rpc_create_dispatch_document',
       params: {'p_items': payload},
     );
-    return Map<String, dynamic>.from(result as Map);
+    return DispatchJsonMap.from(result as Map);
   }
 
   @override
-  Future<void> reverseDocument(String documentId, String reason) async {
+  Future<void> reverseDocument({
+    required String documentId,
+    required String reason,
+    List<DispatchSlotAssignment> alternativeSlots = const [],
+  }) async {
     await db.rpc(
       'rpc_reverse_dispatch_document',
       params: {
         'p_document_id': documentId,
         'p_reason': reason.trim(),
-        'p_alternative_slots': <Map<String, dynamic>>[],
+        'p_alternative_slots': alternativeSlots,
       },
     );
+  }
+
+  @override
+  Stream<void> subscribeToDispatchChanges() {
+    final controller = StreamController<void>.broadcast();
+    final channel = db
+        .channel('dispatch_module_realtime_sync')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'dispatch_documents',
+          callback: (_) => controller.add(null),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'pallet_items',
+          callback: (_) => controller.add(null),
+        )
+        .subscribe();
+
+    controller.onCancel = () {
+      db.removeChannel(channel);
+    };
+    return controller.stream;
   }
 }
