@@ -78,9 +78,9 @@ class _DeletedRecordsPageState extends State<DeletedRecordsPage> {
             : r.items
                   .map(
                     (i) =>
-                        '${i.itemName} (${_fmtQty(i.quantity)} ${i.unit.arLabel})',
+                        '• ${i.itemName} : ${_fmtQty(i.quantity)} ${i.unit.arLabel}',
                   )
-                  .join(' | ');
+                  .join('\n');
         return <String>[
           r.reason,
           r.deletedByName,

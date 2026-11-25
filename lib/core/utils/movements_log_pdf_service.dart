@@ -2,30 +2,40 @@ import 'package:pdf/pdf.dart';
 
 import 'cold_storage_pdf_service.dart';
 
-/// PDF export for the comprehensive warehouse movements log.
-/// Kept in core/utils so the report layout can be maintained independently
-/// from the movements-log screen.
+/// خدمة طباعة سجل الحركات المخزنية الشامل بترتيب أعمدة مطابق لباقي تقارير النظام.
 class MovementsLogPdfService {
   MovementsLogPdfService._();
 
-  static Future<void> printReport({required List<List<String>> rows}) {
+  static Future<void> printReport({
+    required List<List<String>> rows,
+    int? totalCount,
+    int? todayCount,
+  }) {
+    final total = totalCount ?? rows.length;
+    final subtitle = total > rows.length
+        ? 'إجمالي الحركات المطابقة: $total (المطبوع: ${rows.length} حركة)'
+        : 'إجمالي الحركات المطابقة: $total حركة';
+
     return ColdStoragePdfService.printCustomTableReport(
-      reportTitle: 'سجل الحركات المخزنية الشامل — ثلاجة مخفض (رمز C)',
-      reportSubtitle:
-          'إجمالي الحركات المطابقة: ${rows.length} | تاريخ الطباعة (توقيت مصر)',
+      reportTitle: 'سجل الحركات المخزنية الشامل - ثلاجة المخفض',
+      reportSubtitle: subtitle,
       headers: const [
-        'التوقيت',
-        'المستخدم',
-        'نوع الحركة',
-        'موقع البنة',
-        'الكمية',
-        'اسم الصنف',
-        'الجهة',
         'ملاحظات',
+        'الجهة',
+        'اسم الصنف',
+        'الكمية',
+        'الموقع',
+        'نوع الحركة',
+        'المنفذ',
+        'التاريخ والوقت',
       ],
       rows: rows,
       fileName: 'comprehensive_movements_log.pdf',
       headerColor: PdfColors.indigo900,
+      summaryMetrics: {
+        'إجمالي الحركات': '$total',
+        if (todayCount != null) 'حركات اليوم': '$todayCount',
+      },
     );
   }
 }

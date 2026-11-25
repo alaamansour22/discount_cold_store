@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
-import '../widgets/admin_users_section.dart';
+
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_action_button.dart';
 import '../../../../core/widgets/responsive_shimmer.dart';
 import '../../../auth/domain/entities/auth_user_entity.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 import '../../../auth/presentation/cubit/auth_state.dart';
-import '../../domain/entities/create_user_params.dart';
 import '../../domain/entities/notification_settings_entity.dart';
 import '../cubit/settings_cubit.dart';
 import '../cubit/settings_state.dart';
+import '../widgets/admin_users_section.dart';
 
 // =============================================================================
 // أدوات مساعدة مشتركة داخل شاشة الإعدادات
@@ -47,7 +46,7 @@ void _showFeedbackSnackBar(
 }
 
 // =============================================================================
-// 1. الشاشة الرئيسية للإعدادات (تخطيط متجاوب فقط بدون تكدس منطق داخلي)
+// 1. الشاشة الرئيسية للإعدادات (تخطيط متجاوب نظيف بدون تكرار)
 // =============================================================================
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -157,6 +156,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _NotificationsSettingsCard(
             settings: state.settings,
             isSubmitting: state.isSubmitting,
+            isAdmin: isAdmin,
           )
         else if (isAdmin && effectiveSection == 1)
           const AdminUsersSection(isDesktop: false)
@@ -177,6 +177,7 @@ class _SettingsPageState extends State<SettingsPage> {
               _NotificationsSettingsCard(
                 settings: state.settings,
                 isSubmitting: state.isSubmitting,
+                isAdmin: isAdmin,
               ),
               const SizedBox(height: 16),
               const _ChangePasswordCard(),
@@ -220,7 +221,6 @@ class _SectionCardHeader extends StatelessWidget {
   final Color iconBackground;
   final String title;
   final String subtitle;
-  final Widget? trailing;
 
   const _SectionCardHeader({
     required this.icon,
@@ -228,7 +228,6 @@ class _SectionCardHeader extends StatelessWidget {
     required this.iconBackground,
     required this.title,
     required this.subtitle,
-    this.trailing,
   });
 
   @override
@@ -267,7 +266,6 @@ class _SectionCardHeader extends StatelessWidget {
             ],
           ),
         ),
-        ?trailing,
       ],
     );
   }
@@ -483,10 +481,12 @@ class _SettingsSectionSwitcher extends StatelessWidget {
 class _NotificationsSettingsCard extends StatefulWidget {
   final NotificationSettingsEntity settings;
   final bool isSubmitting;
+  final bool isAdmin;
 
   const _NotificationsSettingsCard({
     required this.settings,
     required this.isSubmitting,
+    required this.isAdmin,
   });
 
   @override
@@ -580,7 +580,9 @@ class _NotificationsSettingsCardState
               final isSelected = selectedDays == days;
               return Expanded(
                 child: Padding(
-                  padding: EdgeInsets.only(left: days == _presetDays.last ? 0 : 6),
+                  padding: EdgeInsets.only(
+                    left: days == _presetDays.last ? 0 : 6,
+                  ),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(10),
                     onTap: () =>
@@ -645,9 +647,12 @@ class _NotificationsSettingsCardState
               const SizedBox(width: 10),
               Expanded(
                 child: _buildDaysField(
-                  label: 'الحد العام للثلاجة (يوم)',
+                  label: widget.isAdmin
+                      ? 'الحد العام للثلاجة (يوم)'
+                      : 'الحد العام (للمدير فقط)',
                   controller: _globalDaysCtrl,
                   icon: LucideIcons.building,
+                  enabled: widget.isAdmin,
                 ),
               ),
             ],
@@ -668,7 +673,7 @@ class _NotificationsSettingsCardState
                     vertical: 2,
                   ),
                   value: _notificationsEnabled,
-                  activeColor: AppColors.zoneC2Blue,
+                  activeThumbColor: AppColors.zoneC2Blue,
                   title: const Text(
                     'تفعيل إشعارات الصلاحية لحسابي',
                     style: TextStyle(
@@ -694,7 +699,7 @@ class _NotificationsSettingsCardState
                     vertical: 2,
                   ),
                   value: _receiveMondayAlert,
-                  activeColor: AppColors.zoneC2Blue,
+                  activeThumbColor: AppColors.zoneC2Blue,
                   title: const Text(
                     'التقرير الأسبوعي (يوم الإثنين 8 ص)',
                     style: TextStyle(
@@ -733,6 +738,7 @@ class _NotificationsSettingsCardState
     required String label,
     required TextEditingController controller,
     required IconData icon,
+    bool enabled = true,
     ValueChanged<String>? onChanged,
   }) {
     return Column(
@@ -740,6 +746,8 @@ class _NotificationsSettingsCardState
       children: [
         Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             fontSize: 11.5,
             fontWeight: FontWeight.w700,
@@ -749,13 +757,14 @@ class _NotificationsSettingsCardState
         const SizedBox(height: 6),
         TextField(
           controller: controller,
+          enabled: enabled,
           keyboardType: TextInputType.number,
           textAlign: TextAlign.center,
           onChanged: onChanged,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w800,
             fontSize: 15,
-            color: AppColors.primaryNavy,
+            color: enabled ? AppColors.primaryNavy : AppColors.textSecondary,
           ),
           decoration: InputDecoration(
             isDense: true,
@@ -820,6 +829,12 @@ class _ChangePasswordCardState extends State<_ChangePasswordCard> {
           prev.successMessage != curr.successMessage ||
           prev.failure != curr.failure,
       listener: (context, authState) {
+        final isOffstage =
+            context.findAncestorWidgetOfExactType<Offstage>()?.offstage ??
+            false;
+        if (isOffstage) {
+          return;
+        }
         if (authState.successMessage != null) {
           _showFeedbackSnackBar(context, authState.successMessage!);
           _newPasswordCtrl.clear();
@@ -909,699 +924,4 @@ class _ChangePasswordCardState extends State<_ChangePasswordCard> {
       },
     );
   }
-}
-
-
-// ignore: unused_element
-class _UserManagementTile extends StatelessWidget {
-  final _PermissionUser user;
-  final bool isBusy;
-  final bool canDelete;
-  final ValueChanged<bool> onToggleDispatchReversal;
-  final VoidCallback onDeletePressed;
-
-  const _UserManagementTile({
-    required this.user,
-    required this.isBusy,
-    required this.canDelete,
-    required this.onToggleDispatchReversal,
-    required this.onDeletePressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isAdminUser = user.role == 'admin';
-    final codePart = user.employeeCode != null ? ' • #${user.employeeCode}' : '';
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 17,
-            backgroundColor: !user.isActive
-                ? AppColors.dangerRed.withValues(alpha: 0.12)
-                : isAdminUser
-                ? AppColors.primaryNavy
-                : AppColors.zoneC2Blue.withValues(alpha: 0.12),
-            child: Icon(
-              isAdminUser ? LucideIcons.shield : LucideIcons.user,
-              size: 15,
-              color: !user.isActive
-                  ? AppColors.dangerRed
-                  : isAdminUser
-                  ? AppColors.accentCyan
-                  : AppColors.zoneC2Blue,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  user.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    color: user.isActive
-                        ? AppColors.primaryNavy
-                        : AppColors.textSecondary,
-                    decoration: user.isActive
-                        ? null
-                        : TextDecoration.lineThrough,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${_roleLabelAr(user.role)}$codePart • ${user.isActive ? "نشط" : "موقوف"}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: user.isActive
-                        ? AppColors.textSecondary
-                        : AppColors.dangerRed,
-                    fontSize: 11,
-                    fontWeight: user.isActive
-                        ? FontWeight.w500
-                        : FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (isBusy)
-                const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else
-                Switch.adaptive(
-                  value: user.canReverseDispatch,
-                  activeColor: AppColors.zoneC2Blue,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  onChanged: user.isActive ? onToggleDispatchReversal : null,
-                ),
-              Text(
-                user.canReverseDispatch ? 'مسموح' : 'غير مسموح',
-                style: TextStyle(
-                  fontSize: 9.5,
-                  fontWeight: FontWeight.w700,
-                  color: user.canReverseDispatch
-                      ? AppColors.successGreen
-                      : AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          if (canDelete) ...[
-            const SizedBox(width: 4),
-            IconButton(
-              tooltip: 'حذف حساب الموظف',
-              visualDensity: VisualDensity.compact,
-              onPressed: isBusy ? null : onDeletePressed,
-              style: IconButton.styleFrom(
-                backgroundColor: AppColors.dangerRed.withValues(alpha: 0.08),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(9),
-                ),
-              ),
-              icon: const Icon(
-                LucideIcons.trash2,
-                size: 16,
-                color: AppColors.dangerRed,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// 7. نافذة إضافة مستخدم جديد
-// =============================================================================
-class _AddUserDialog extends StatefulWidget {
-  final Future<String?> Function(CreateUserParams params) onSubmit;
-
-  const _AddUserDialog({required this.onSubmit});
-
-  @override
-  State<_AddUserDialog> createState() => _AddUserDialogState();
-}
-
-class _AddUserDialogState extends State<_AddUserDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameCtrl = TextEditingController();
-  final _codeCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _passwordCtrl = TextEditingController();
-  final _confirmPasswordCtrl = TextEditingController();
-
-  AppUserRole _selectedRole = AppUserRole.operator;
-  bool _grantDispatchReversal = false;
-  bool _obscurePassword = true;
-  bool _submitting = false;
-  String? _serverError;
-
-  static final RegExp _emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _codeCtrl.dispose();
-    _emailCtrl.dispose();
-    _passwordCtrl.dispose();
-    _confirmPasswordCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (_submitting) return;
-    if (!_formKey.currentState!.validate()) return;
-
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _submitting = true;
-      _serverError = null;
-    });
-
-    final errorMessage = await widget.onSubmit(
-      CreateUserParams(
-        fullName: _nameCtrl.text.trim(),
-        employeeCode: _codeCtrl.text.trim(),
-        email: _emailCtrl.text.trim().toLowerCase(),
-        password: _passwordCtrl.text,
-        role: _selectedRole,
-        grantDispatchReversal: _grantDispatchReversal,
-      ),
-    );
-
-    if (!mounted) return;
-    if (errorMessage == null) {
-      Navigator.of(context).pop(true);
-    } else {
-      setState(() {
-        _submitting = false;
-        _serverError = errorMessage;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: !_submitting,
-      child: Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          titlePadding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
-          contentPadding: const EdgeInsets.fromLTRB(18, 4, 18, 12),
-          title: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: AppColors.zoneC2Blue.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  LucideIcons.userCheck,
-                  color: AppColors.zoneC2Blue,
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text(
-                  'إضافة مستخدم جديد',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.primaryNavy,
-                  ),
-                ),
-              ),
-              IconButton(
-                onPressed: _submitting
-                    ? null
-                    : () => Navigator.of(context).pop(),
-                icon: const Icon(LucideIcons.x, size: 18),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: 440,
-            child: SingleChildScrollView(
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_serverError != null) ...[
-                      _DialogErrorBanner(message: _serverError!),
-                      const SizedBox(height: 12),
-                    ],
-                    TextFormField(
-                      controller: _nameCtrl,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'الاسم بالكامل',
-                        hintText: 'مثال: أحمد محمود',
-                        prefixIcon: Icon(LucideIcons.user, size: 18),
-                        isDense: true,
-                      ),
-                      validator: (v) {
-                        if ((v?.trim().length ?? 0) < 2) {
-                          return 'يرجى إدخال اسم الموظف بالكامل';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 11),
-                    TextFormField(
-                      controller: _codeCtrl,
-                      textInputAction: TextInputAction.next,
-                      textDirection: TextDirection.ltr,
-                      textAlign: TextAlign.left,
-                      decoration: const InputDecoration(
-                        labelText: 'كود الموظف',
-                        hintText: '11707',
-                        hintTextDirection: TextDirection.ltr,
-                        prefixIcon: Icon(LucideIcons.hash, size: 18),
-                        isDense: true,
-                      ),
-                      validator: (v) {
-                        if ((v?.trim() ?? '').isEmpty) {
-                          return 'يرجى إدخال كود الموظف';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 11),
-                    TextFormField(
-                      controller: _emailCtrl,
-                      keyboardType: TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      textDirection: TextDirection.ltr,
-                      textAlign: TextAlign.left,
-                      decoration: const InputDecoration(
-                        labelText: 'البريد الإلكتروني',
-                        hintText: 'employee@beyti.com',
-                        hintTextDirection: TextDirection.ltr,
-                        prefixIcon: Icon(LucideIcons.atSign, size: 18),
-                        isDense: true,
-                      ),
-                      validator: (v) {
-                        if (!_emailRegex.hasMatch(v?.trim() ?? '')) {
-                          return 'يرجى إدخال بريد إلكتروني صحيح';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 11),
-                    TextFormField(
-                      controller: _passwordCtrl,
-                      obscureText: _obscurePassword,
-                      textInputAction: TextInputAction.next,
-                      textDirection: TextDirection.ltr,
-                      textAlign: TextAlign.left,
-                      decoration: InputDecoration(
-                        labelText: 'كلمة المرور (6 أحرف على الأقل)',
-                        hintText: '••••••••',
-                        hintTextDirection: TextDirection.ltr,
-                        prefixIcon: const Icon(LucideIcons.keyRound, size: 18),
-                        isDense: true,
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword
-                                ? LucideIcons.eyeOff
-                                : LucideIcons.eye,
-                            size: 18,
-                          ),
-                          onPressed: () => setState(
-                            () => _obscurePassword = !_obscurePassword,
-                          ),
-                        ),
-                      ),
-                      validator: (v) {
-                        final val = v ?? '';
-                        if (val.length < 6) {
-                          return 'كلمة المرور يجب ألا تقل عن 6 أحرف';
-                        }
-                        if (val.length > 72) {
-                          return 'كلمة المرور يجب ألا تزيد عن 72 حرفاً';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 11),
-                    TextFormField(
-                      controller: _confirmPasswordCtrl,
-                      obscureText: _obscurePassword,
-                      textInputAction: TextInputAction.done,
-                      textDirection: TextDirection.ltr,
-                      textAlign: TextAlign.left,
-                      onFieldSubmitted: (_) => _submit(),
-                      decoration: const InputDecoration(
-                        labelText: 'تأكيد كلمة المرور',
-                        hintText: '••••••••',
-                        hintTextDirection: TextDirection.ltr,
-                        prefixIcon: Icon(LucideIcons.lock, size: 18),
-                        isDense: true,
-                      ),
-                      validator: (v) {
-                        if (v != _passwordCtrl.text) {
-                          return 'كلمتا المرور غير متطابقتين';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<AppUserRole>(
-                      initialValue: _selectedRole,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'الصلاحية (الدور الوظيفي)',
-                        prefixIcon: Icon(LucideIcons.shield, size: 18),
-                        isDense: true,
-                      ),
-                      items: AppUserRole.values
-                          .map(
-                            (role) => DropdownMenuItem<AppUserRole>(
-                              value: role,
-                              child: Text(
-                                role.arLabel,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13.5,
-                                ),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: _submitting
-                          ? null
-                          : (val) {
-                              if (val != null) {
-                                setState(() => _selectedRole = val);
-                              }
-                            },
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _selectedRole.description,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.borderLight),
-                      ),
-                      child: SwitchListTile.adaptive(
-                        dense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 2,
-                        ),
-                        value: _grantDispatchReversal,
-                        activeColor: AppColors.zoneC2Blue,
-                        title: const Text(
-                          'منح صلاحية عكس مستندات الصرف',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.primaryNavy,
-                          ),
-                        ),
-                        subtitle: const Text(
-                          'يمكن تعديلها لاحقاً في أي وقت من قائمة الصلاحيات',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        onChanged: _submitting
-                            ? null
-                            : (v) =>
-                                  setState(() => _grantDispatchReversal = v),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: _submitting ? null : () => Navigator.of(context).pop(),
-              child: const Text('إلغاء'),
-            ),
-            AppActionButton(
-              label: 'إنشاء المستخدم',
-              icon: LucideIcons.check,
-              isLoading: _submitting,
-              variant: AppButtonVariant.success,
-              onPressed: _submit,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// 8. نافذة تأكيد حذف حساب موظف
-// =============================================================================
-class _DeleteUserConfirmDialog extends StatefulWidget {
-  final _PermissionUser user;
-  final Future<String?> Function(String reason) onConfirm;
-
-  const _DeleteUserConfirmDialog({
-    required this.user,
-    required this.onConfirm,
-  });
-
-  @override
-  State<_DeleteUserConfirmDialog> createState() =>
-      _DeleteUserConfirmDialogState();
-}
-
-class _DeleteUserConfirmDialogState extends State<_DeleteUserConfirmDialog> {
-  final TextEditingController _reasonCtrl = TextEditingController(
-    text: 'حذف حساب موظف',
-  );
-  bool _submitting = false;
-  String? _errorMessage;
-
-  @override
-  void dispose() {
-    _reasonCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (_submitting) return;
-    final cleanReason = _reasonCtrl.text.trim();
-    if (cleanReason.isEmpty) {
-      setState(() => _errorMessage = 'يرجى كتابة سبب حذف الحساب.');
-      return;
-    }
-
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _submitting = true;
-      _errorMessage = null;
-    });
-
-    final err = await widget.onConfirm(cleanReason);
-    if (!mounted) return;
-    if (err == null) {
-      Navigator.of(context).pop(true);
-    } else {
-      setState(() {
-        _submitting = false;
-        _errorMessage = err;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final codeText = widget.user.employeeCode != null
-        ? ' (#${widget.user.employeeCode})'
-        : '';
-
-    return PopScope(
-      canPop: !_submitting,
-      child: Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          title: Row(
-            children: [
-              const Icon(LucideIcons.triangleAlert, color: AppColors.dangerRed),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text(
-                  'تأكيد حذف حساب الموظف',
-                  style: TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.primaryNavy,
-                  ),
-                ),
-              ),
-              IconButton(
-                onPressed: _submitting
-                    ? null
-                    : () => Navigator.of(context).pop(),
-                icon: const Icon(LucideIcons.x, size: 18),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(11),
-                  decoration: BoxDecoration(
-                    color: AppColors.dangerRed.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppColors.dangerRed.withValues(alpha: 0.25),
-                    ),
-                  ),
-                  child: Text(
-                    'أنت على وشك حذف حساب الموظف "${widget.user.name}"$codeText — (${_roleLabelAr(widget.user.role)}).\n'
-                    '• إذا لم يسجل حركات مخزنية: سيتم حذف الحساب نهائياً.\n'
-                    '• إذا كان له حركات سابقة: سيتم إيقاف الحساب وسحب صلاحياته ومنعه من الدخول نهائياً مع حفظ اسمه في سجل الحركات والتقارير.',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      height: 1.55,
-                      color: AppColors.primaryNavy,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _reasonCtrl,
-                  enabled: !_submitting,
-                  maxLines: 2,
-                  onChanged: (_) {
-                    if (_errorMessage != null) {
-                      setState(() => _errorMessage = null);
-                    }
-                  },
-                  decoration: InputDecoration(
-                    labelText: 'سبب الحذف (يُوثّق في سجل التدقيق)',
-                    prefixIcon: const Icon(LucideIcons.fileText, size: 18),
-                    errorText: _errorMessage,
-                    isDense: true,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: _submitting ? null : () => Navigator.of(context).pop(),
-              child: const Text('إلغاء'),
-            ),
-            AppActionButton(
-              label: 'تأكيد الحذف',
-              icon: LucideIcons.trash2,
-              isLoading: _submitting,
-              variant: AppButtonVariant.danger,
-              onPressed: _submit,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DialogErrorBanner extends StatelessWidget {
-  final String message;
-
-  const _DialogErrorBanner({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.dangerRed.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.dangerRed.withValues(alpha: 0.35)),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            LucideIcons.circleAlert,
-            color: AppColors.dangerRed,
-            size: 17,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(
-                color: AppColors.dangerRed,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// 9. نموذج العرض الداخلي لقائمة الموظفين
-// =============================================================================
-class _PermissionUser {
-  final String id;
-  final String name;
-  final String? employeeCode;
-  final String role;
-  final bool isActive;
-  final bool canReverseDispatch;
-
-  const _PermissionUser({
-    required this.id,
-    required this.name,
-    this.employeeCode,
-    required this.role,
-    required this.isActive,
-    required this.canReverseDispatch,
-  });
 }

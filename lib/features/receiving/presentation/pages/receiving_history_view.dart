@@ -62,7 +62,9 @@ class _ReceivingHistoryViewState extends State<ReceivingHistoryView> {
   void _onSearchChanged(String value) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 350), () {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       final cubit = context.read<ReceivingCubit>();
       cubit.updateReceiptsFilter(
         cubit.state.receiptsFilter.copyWith(search: value.trim()),
@@ -78,10 +80,18 @@ class _ReceivingHistoryViewState extends State<ReceivingHistoryView> {
 
   String _filterDescription(ReceiptsHistoryFilter f) {
     final parts = <String>[];
-    if (f.kind != ReceiptOperationKind.all) parts.add(f.kind.arLabel);
-    if (f.source != null) parts.add(f.source!.arLabel);
-    if (f.fromDate != null) parts.add('من ${_fmtDate(f.fromDate!)}');
-    if (f.toDate != null) parts.add('إلى ${_fmtDate(f.toDate!)}');
+    if (f.kind != ReceiptOperationKind.all) {
+      parts.add(f.kind.arLabel);
+    }
+    if (f.source != null) {
+      parts.add(f.source!.arLabel);
+    }
+    if (f.fromDate != null) {
+      parts.add('من ${_fmtDate(f.fromDate!)}');
+    }
+    if (f.toDate != null) {
+      parts.add('إلى ${_fmtDate(f.toDate!)}');
+    }
     return parts.isEmpty
         ? 'كل الأنواع • كل الجهات • كل الفترات'
         : parts.join(' · ');
@@ -99,16 +109,22 @@ class _ReceivingHistoryViewState extends State<ReceivingHistoryView> {
       locale: const Locale('ar', 'EG'),
       helpText: isFrom ? 'اختر تاريخ البداية' : 'اختر تاريخ النهاية',
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted) {
+      return;
+    }
 
     var nextFrom = current.fromDate;
     var nextTo = current.toDate;
     if (isFrom) {
       nextFrom = picked;
-      if (nextTo != null && nextFrom.isAfter(nextTo)) nextTo = picked;
+      if (nextTo != null && nextFrom.isAfter(nextTo)) {
+        nextTo = picked;
+      }
     } else {
       nextTo = picked;
-      if (nextFrom != null && nextTo.isBefore(nextFrom)) nextFrom = picked;
+      if (nextFrom != null && nextTo.isBefore(nextFrom)) {
+        nextFrom = picked;
+      }
     }
 
     await cubit.updateReceiptsFilter(
@@ -117,7 +133,9 @@ class _ReceivingHistoryViewState extends State<ReceivingHistoryView> {
   }
 
   Future<void> _exportPdf() async {
-    if (_isExportingPdf) return;
+    if (_isExportingPdf) {
+      return;
+    }
     setState(() => _isExportingPdf = true);
 
     try {
@@ -130,9 +148,10 @@ class _ReceivingHistoryViewState extends State<ReceivingHistoryView> {
       final rows = operations.map((op) {
         final itemsText = op.items
             .map(
-              (e) => '${e.itemName} (${_fmtQty(e.quantity)} ${e.unit.arLabel})',
+              (e) =>
+                  '${e.itemName}  —  ${_fmtQty(e.quantity)} ${e.unit.arLabel}',
             )
-            .join(' | ');
+            .join('\n');
         return <String>[
           _fmtDateTime(op.createdAt),
           op.performedByName,
@@ -171,7 +190,9 @@ class _ReceivingHistoryViewState extends State<ReceivingHistoryView> {
         },
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
@@ -182,7 +203,9 @@ class _ReceivingHistoryViewState extends State<ReceivingHistoryView> {
           ),
         );
     } finally {
-      if (mounted) setState(() => _isExportingPdf = false);
+      if (mounted) {
+        setState(() => _isExportingPdf = false);
+      }
     }
   }
 
@@ -395,7 +418,7 @@ class _ReceivingHistoryViewState extends State<ReceivingHistoryView> {
                 child: CustomScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   slivers: [
-SliverPadding(
+                    SliverPadding(
                       padding: EdgeInsets.fromLTRB(
                         pad,
                         desktop ? 18 : 10,
@@ -784,7 +807,8 @@ SliverPadding(
                     controller: _searchController,
                     onChanged: _onSearchChanged,
                     decoration: InputDecoration(
-                      hintText: 'ابحث بالصنف أو كود البالتة أو الموقع أو المستلم',
+                      hintText:
+                          'ابحث بالصنف أو كود البالتة أو الموقع أو المستلم',
                       prefixIcon: const Icon(LucideIcons.search, size: 18),
                       suffixIcon: val.text.isEmpty
                           ? null

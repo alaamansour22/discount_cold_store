@@ -308,10 +308,83 @@ if (msg.contains('CANNOT_DELETE_SELF')) {
       );
     }
 
+    if (msg.contains('EMPTY_PALLET')) {
+      return const AppFailure(
+        message: 'يجب إضافة صنف واحد على الأقل قبل الحفظ.',
+        code: 'EMPTY_PALLET',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('INVALID_ITEM_NAME')) {
+      return const AppFailure(
+        message: 'يرجى إدخال اسم الصنف بشكل صحيح.',
+        code: 'INVALID_ITEM_NAME',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('INVALID_QUANTITY') ||
+        msg.contains('INVALID_RELEASE_QUANTITY')) {
+      return const AppFailure(
+        message: 'الكمية المدخلة غير صحيحة أو تتجاوز الرصيد المتاح.',
+        code: 'INVALID_QUANTITY',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('INVALID_DAYS')) {
+      return const AppFailure(
+        message: 'عدد أيام التنبيه يجب أن يكون بين 1 و 365 يوماً.',
+        code: 'INVALID_DAYS',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('NOTES_TOO_LONG')) {
+      return const AppFailure(
+        message: 'الملاحظات أطول من الحد المسموح (500 حرف).',
+        code: 'NOTES_TOO_LONG',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('PALLET_NOT_IN_STOCK') ||
+        msg.contains('PALLET_SLOT_NOT_FOUND')) {
+      return const AppFailure(
+        message:
+            'البالتة لم تعد متاحة في موقعها الحالي (تم نقلها أو صرفها للتو). تم تحديث البيانات.',
+        code: 'PALLET_NOT_IN_STOCK',
+        type: FailureType.concurrencyConflict,
+      );
+    }
+
+    if (msg.contains('SLOT_NOT_FOUND') ||
+        msg.contains('TARGET_SLOT_NOT_FOUND')) {
+      return const AppFailure(
+        message: 'موقع الراك المختار غير موجود أو غير نشط حالياً.',
+        code: 'SLOT_NOT_FOUND',
+        type: FailureType.validationError,
+      );
+    }
+
+    if (msg.contains('INVALID_REPORT_KEY') ||
+        msg.contains('UNSUPPORTED_ACTION')) {
+      return const AppFailure(
+        message: 'نوع العملية أو التقرير المطلوب غير مدعوم.',
+        code: 'UNSUPPORTED_ACTION',
+        type: FailureType.validationError,
+      );
+    }
+
     return AppFailure(
       message: 'خطأ من قاعدة البيانات: ${e.message}',
       code: e.code,
       type: FailureType.serverError,
     );
   }
+
+
+
+  
 }

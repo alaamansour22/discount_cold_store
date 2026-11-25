@@ -59,6 +59,16 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
     cubit.clearFilters();
   }
 
+  String _cleanPdfSlot(String? slot) {
+    if (slot == null || slot.trim().isEmpty) {
+      return '';
+    }
+    if (slot == 'employee_sales_outlet') {
+      return 'منفذ البيع';
+    }
+    return slot;
+  }
+
   Future<void> _printMovementsPdf(MovementsLogCubit cubit) async {
     if (_isExportingPdf) {
       return;
@@ -68,21 +78,30 @@ class _MovementsLogPageState extends State<MovementsLogPage> {
     try {
       final exported = await cubit.fetchForExport();
       final movements = exported.page.items;
-      final rows = movements
-          .map(
-            (m) => <String>[
-              _fmtDateTime(m.createdAt),
-              m.performedByName,
-              m.movementType.arLabel,
-              m.toSlotCode ?? m.fromSlotCode ?? '-',
-              '${_fmtQty(m.quantityChanged)} ${m.unit.arLabel}',
-              m.itemName,
-              m.sourceEntity.arLabel,
-              m.notes ?? '-',
-            ],
-          )
-          .toList();
-      await MovementsLogPdfService.printReport(rows: rows);
+      final rows = movements.map((m) {
+        final from = _cleanPdfSlot(m.fromSlotCode);
+        final to = _cleanPdfSlot(m.toSlotCode);
+        final slotText = (from.isNotEmpty && to.isNotEmpty)
+            ? 'من $from\nإلى $to'
+            : (to.isNotEmpty ? to : (from.isNotEmpty ? from : '—'));
+
+        return <String>[
+          (m.notes == null || m.notes!.trim().isEmpty) ? '—' : m.notes!.trim(),
+          m.sourceEntity.arLabel,
+          m.itemName,
+          '${_fmtQty(m.quantityChanged)} ${m.unit.arLabel}',
+          slotText,
+          m.movementType.arLabel,
+          m.performedByName,
+          _fmtDateTime(m.createdAt),
+        ];
+      }).toList();
+
+      await MovementsLogPdfService.printReport(
+        rows: rows,
+        totalCount: exported.summary.totalMovements,
+        todayCount: exported.summary.todayMovements,
+      );
     } catch (e) {
       if (!mounted) {
         return;

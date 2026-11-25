@@ -195,7 +195,6 @@ class _DispatchHistoryViewState extends State<DispatchHistoryView> {
   }
 
   Future<void> _handleReverseDocument(
-    BuildContext context,
     DispatchCubit cubit,
     DispatchDocumentEntity doc,
   ) async {
@@ -355,7 +354,6 @@ class _DispatchHistoryViewState extends State<DispatchHistoryView> {
                                 onExpand: () =>
                                     cubit.loadDetails(docs[index].id),
                                 onReverse: () => _handleReverseDocument(
-                                  ctx,
                                   cubit,
                                   docs[index],
                                 ),

@@ -67,7 +67,7 @@ flutter:
   assets:
     - assets/image/
     - assets/image/logo_blue.png
-    - assets/image/beyti-logo.jpg
+    - assets/image/beyti_logo.jpg
     - assets/image/logo_sq.png
     - assets/image/logo.png
     - assets/font/

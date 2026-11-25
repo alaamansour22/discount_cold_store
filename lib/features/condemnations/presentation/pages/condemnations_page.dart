@@ -274,10 +274,11 @@ class _CondemnationsPageState extends State<CondemnationsPage>
     }
   }
 
-  Future<void> _openApproveDialog(
+ Future<void> _openApproveDialog(
     BuildContext context,
     CondemnationAlertItemEntity item,
   ) async {
+    final cubit = context.read<CondemnationsCubit>();
     final result = await showDialog<_CondemnationApprovalResult>(
       context: context,
       barrierDismissible: false,
@@ -287,7 +288,7 @@ class _CondemnationsPageState extends State<CondemnationsPage>
       return;
     }
 
-    await context.read<CondemnationsCubit>().approveCondemnation(
+    await cubit.approveCondemnation(
       palletItemId: item.palletItemId,
       availableQuantity: item.quantity,
       quantityToCondemn: result.quantity,
